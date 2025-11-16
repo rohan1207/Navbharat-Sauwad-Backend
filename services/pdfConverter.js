@@ -2,7 +2,6 @@ import fs from 'fs-extra';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import sharp from 'sharp';
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,9 +11,10 @@ const TEMP_DIR = path.join(__dirname, '../temp');
 // Ensure temp directory exists
 fs.ensureDirSync(TEMP_DIR);
 
-// Lazy load canvas to handle missing dependencies gracefully
+// Lazy load canvas and pdfjs-dist to handle missing dependencies gracefully
 let canvasModule = null;
 let createCanvas = null;
+let pdfjsLib = null;
 
 const loadCanvas = async () => {
   if (createCanvas) return createCanvas;
@@ -29,6 +29,50 @@ const loadCanvas = async () => {
   }
 };
 
+const loadPdfjs = async () => {
+  if (pdfjsLib) return pdfjsLib;
+  
+  // Try different import paths for different pdfjs-dist versions and structures
+  const importPaths = [
+    'pdfjs-dist/build/pdf.mjs',
+    'pdfjs-dist',
+    'pdfjs-dist/legacy/build/pdf.mjs'
+  ];
+  
+  for (const importPath of importPaths) {
+    try {
+      console.log(`Trying to import pdfjs-dist from: ${importPath}`);
+      const pdfjsModule = await import(importPath);
+      
+      // pdfjs-dist exports as default or named exports depending on version
+      pdfjsLib = pdfjsModule.default || pdfjsModule;
+      
+      // Verify we have getDocument method (check multiple possible locations)
+      const hasGetDocument = pdfjsLib.getDocument || 
+                            (pdfjsLib.default && pdfjsLib.default.getDocument) ||
+                            (typeof pdfjsLib === 'function');
+      
+      if (hasGetDocument) {
+        console.log(`✅ Successfully loaded pdfjs-dist from: ${importPath}`);
+        
+        // Set worker source for Node.js (optional, but good practice)
+        if (pdfjsLib.GlobalWorkerOptions) {
+          pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version || '4.0.379'}/pdf.worker.min.js`;
+        }
+        
+        return pdfjsLib;
+      } else {
+        console.log(`Import from ${importPath} succeeded but getDocument not found`);
+      }
+    } catch (error) {
+      console.log(`Failed to import from ${importPath}:`, error.message);
+      continue;
+    }
+  }
+  
+  throw new Error('Failed to load pdfjs-dist from any known path. Please check the package installation.');
+};
+
 /**
  * Convert PDF to images using pdfjs-dist (pure JavaScript, works on all platforms)
  * @param {String} pdfPath - Path to PDF file
@@ -36,18 +80,36 @@ const loadCanvas = async () => {
  */
 export const convertPDFToImages = async (pdfPath) => {
   try {
-    // Ensure canvas is loaded
+    // Ensure canvas and pdfjs are loaded
     const canvas = await loadCanvas();
     if (!canvas) {
       throw new Error('Canvas module is not available');
+    }
+
+    const pdfjs = await loadPdfjs();
+    if (!pdfjs) {
+      throw new Error('pdfjs-dist module is not available');
     }
 
     // Read PDF file
     const pdfBuffer = fs.readFileSync(pdfPath);
     const pdfData = new Uint8Array(pdfBuffer);
 
-    // Load PDF document
-    const loadingTask = pdfjsLib.getDocument({ 
+    // Load PDF document - handle different export structures
+    let getDocument = pdfjs.getDocument;
+    if (!getDocument && pdfjs.default) {
+      getDocument = pdfjs.default.getDocument;
+    }
+    if (!getDocument) {
+      // Try accessing it directly from the module
+      getDocument = pdfjs;
+    }
+    
+    if (typeof getDocument !== 'function') {
+      throw new Error('getDocument method not found in pdfjs-dist. Available methods: ' + Object.keys(pdfjs).join(', '));
+    }
+
+    const loadingTask = getDocument({ 
       data: pdfData,
       useSystemFonts: true 
     });
