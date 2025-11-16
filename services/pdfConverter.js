@@ -1,8 +1,8 @@
-import pdf from 'pdf-poppler';
 import fs from 'fs-extra';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import sharp from 'sharp';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,56 +12,88 @@ const TEMP_DIR = path.join(__dirname, '../temp');
 // Ensure temp directory exists
 fs.ensureDirSync(TEMP_DIR);
 
+// Lazy load canvas to handle missing dependencies gracefully
+let canvasModule = null;
+let createCanvas = null;
+
+const loadCanvas = async () => {
+  if (createCanvas) return createCanvas;
+  
+  try {
+    canvasModule = await import('canvas');
+    createCanvas = canvasModule.createCanvas;
+    return createCanvas;
+  } catch (error) {
+    console.error('❌ Failed to load canvas module:', error.message);
+    throw new Error('Canvas module is required for PDF conversion. On Render, ensure canvas dependencies are installed.');
+  }
+};
+
 /**
- * Convert PDF to images
+ * Convert PDF to images using pdfjs-dist (pure JavaScript, works on all platforms)
  * @param {String} pdfPath - Path to PDF file
  * @returns {Promise<Array>} Array of page images as buffers
  */
 export const convertPDFToImages = async (pdfPath) => {
   try {
-    const options = {
-      format: 'png',
-      out_dir: TEMP_DIR,
-      out_prefix: `page_${Date.now()}`,
-      page: null // Convert all pages
-    };
+    // Ensure canvas is loaded
+    const canvas = await loadCanvas();
+    if (!canvas) {
+      throw new Error('Canvas module is not available');
+    }
 
-    // Convert PDF to images
-    await pdf.convert(pdfPath, options);
+    // Read PDF file
+    const pdfBuffer = fs.readFileSync(pdfPath);
+    const pdfData = new Uint8Array(pdfBuffer);
 
-    // Get all generated image files
-    const files = fs.readdirSync(TEMP_DIR);
-    const pageFiles = files
-      .filter(file => file.startsWith(options.out_prefix))
-      .sort((a, b) => {
-        const numA = parseInt(a.match(/\d+/)?.[0] || 0);
-        const numB = parseInt(b.match(/\d+/)?.[0] || 0);
-        return numA - numB;
-      });
+    // Load PDF document
+    const loadingTask = pdfjsLib.getDocument({ 
+      data: pdfData,
+      useSystemFonts: true 
+    });
+    const pdf = await loadingTask.promise;
+    const numPages = pdf.numPages;
+
+    console.log(`📄 PDF has ${numPages} pages`);
 
     const pages = [];
 
-    for (let i = 0; i < pageFiles.length; i++) {
-      const filePath = path.join(TEMP_DIR, pageFiles[i]);
-      const imageBuffer = fs.readFileSync(filePath);
-      
-      // Get image dimensions
+    // Convert each page to image
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 2.0 }); // Higher scale for better quality
+
+      // Create canvas
+      const canvasInstance = canvas(viewport.width, viewport.height);
+      const context = canvasInstance.getContext('2d');
+
+      // Render PDF page to canvas
+      const renderContext = {
+        canvasContext: context,
+        viewport: viewport
+      };
+
+      await page.render(renderContext).promise;
+
+      // Convert canvas to buffer
+      const imageBuffer = canvasInstance.toBuffer('image/png');
+
+      // Get image dimensions using sharp
       const metadata = await sharp(imageBuffer).metadata();
-      
+
       // Convert to JPEG buffer for better compression
       const jpegBuffer = await sharp(imageBuffer)
         .jpeg({ quality: 90 })
         .toBuffer();
 
       pages.push({
-        pageNo: i + 1,
+        pageNo: pageNum,
         imageBuffer: jpegBuffer,
         width: metadata.width,
         height: metadata.height
       });
 
-      // Clean up temp file
-      fs.unlinkSync(filePath);
+      console.log(`✅ Converted page ${pageNum}/${numPages}`);
     }
 
     return pages;
@@ -87,6 +119,3 @@ export const cleanupTemp = () => {
     console.error('Cleanup error:', error);
   }
 };
-
-
-

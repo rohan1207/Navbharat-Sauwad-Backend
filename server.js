@@ -25,7 +25,9 @@ const PORT = process.env.PORT || 5001;
 // Middleware - CORS configuration
 const allowedOrigins = [
   'http://localhost:5174', // Frontend
-  'http://localhost:5175', // Admin Panel (alternative port)
+  'http://localhost:5175', // Admin Panel
+  'https://navbharat-sauwad-frontend.onrender.com',
+  'https://navbharat-sauwad-admin.onrender.com',
   process.env.FRONTEND_URL,
   process.env.ADMIN_PANEL_URL
 ].filter(Boolean); // Remove undefined values
