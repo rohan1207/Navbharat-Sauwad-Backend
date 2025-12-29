@@ -123,7 +123,7 @@ export const convertPDFToImages = async (pdfPath) => {
     // Convert each page to image
     for (let pageNum = 1; pageNum <= numPages; pageNum++) {
       const page = await pdf.getPage(pageNum);
-      const viewport = page.getViewport({ scale: 2.0 }); // Higher scale for better quality
+      const viewport = page.getViewport({ scale: 3.5 }); // Higher scale for better quality (increased from 2.0)
 
       // Create canvas
       const canvasInstance = canvas(viewport.width, viewport.height);
@@ -143,9 +143,9 @@ export const convertPDFToImages = async (pdfPath) => {
       // Get image dimensions using sharp
       const metadata = await sharp(imageBuffer).metadata();
 
-      // Convert to JPEG buffer for better compression
+      // Convert to JPEG buffer for better compression with high quality
       const jpegBuffer = await sharp(imageBuffer)
-        .jpeg({ quality: 90 })
+        .jpeg({ quality: 95 }) // Increased quality from 90 to 95
         .toBuffer();
 
       pages.push({

@@ -29,20 +29,48 @@ const connectDB = async () => {
       process.exit(1);
     }
 
+    // Check if already connected
+    if (mongoose.connection.readyState === 1) {
+      console.log('✅ MongoDB already connected, reusing connection');
+      return mongoose.connection;
+    }
+
     console.log('🔌 Connecting to MongoDB...');
+    console.log(`   URI: ${mongoURI.substring(0, 20)}...`);
+    const startTime = Date.now();
+    
     const conn = await mongoose.connect(mongoURI, {
-      serverSelectionTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 5000, // Reduced to 5 seconds for faster failure
+      socketTimeoutMS: 30000,
+      connectTimeoutMS: 5000,
+      maxPoolSize: 10, // Connection pool size
+      minPoolSize: 1,
     });
+    
+    const connectionTime = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`⏱️  Connection took ${connectionTime} seconds`);
     
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
     console.log(`📊 Database: ${conn.connection.name}`);
     return conn;
   } catch (error) {
-    console.error('❌ MongoDB connection error:', error.message);
+    console.error('');
+    console.error('═══════════════════════════════════════════════════');
+    console.error('❌ MongoDB connection error');
+    console.error('═══════════════════════════════════════════════════');
+    console.error('Error:', error.message);
     if (error.message.includes('uri parameter')) {
       console.error('💡 Make sure MONGODB_URI is set correctly in .env file');
     }
-    process.exit(1);
+    if (error.message.includes('timeout')) {
+      console.error('💡 Connection timeout - check your internet connection and MongoDB URI');
+    }
+    if (error.message.includes('ENOTFOUND') || error.message.includes('querySrv')) {
+      console.error('💡 DNS resolution failed - check your MongoDB URI format');
+    }
+    console.error('═══════════════════════════════════════════════════');
+    console.error('');
+    throw error; // Re-throw to be caught by startServer
   }
 };
 

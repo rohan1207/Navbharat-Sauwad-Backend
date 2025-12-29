@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs-extra';
 import mongoose from 'mongoose';
+import sharp from 'sharp';
 import Epaper from '../models/Epaper.js';
 import { uploadEpaperPage, deleteFolder } from '../services/cloudinaryService.js';
 import { convertPDFToImages, cleanupTemp } from '../services/pdfConverter.js';
@@ -28,6 +29,21 @@ const upload = multer({
   }
 });
 
+// Configure multer for image uploads (for individual page uploads)
+const uploadImage = multer({
+  dest: path.join(__dirname, '../temp'),
+  limits: {
+    fileSize: 20 * 1024 * 1024 // 20MB limit for images
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'), false);
+    }
+  }
+});
+
 // GET /api/epapers - Get all epapers
 router.get('/', async (req, res) => {
   try {
@@ -42,7 +58,20 @@ router.get('/', async (req, res) => {
 
     const epapers = await Epaper.find({ status: 'published' })
       .sort({ date: -1 })
-      .select('-__v');
+      .select('-__v')
+      .lean();
+    
+    // Sort pages by sortOrder for each epaper
+    epapers.forEach(epaper => {
+      if (epaper.pages && Array.isArray(epaper.pages)) {
+        epaper.pages.sort((a, b) => {
+          const orderA = a.sortOrder !== undefined ? a.sortOrder : a.pageNo;
+          const orderB = b.sortOrder !== undefined ? b.sortOrder : b.pageNo;
+          return orderA - orderB;
+        });
+      }
+    });
+    
     res.json(epapers);
   } catch (error) {
     console.error('Error fetching epapers:', error);
@@ -69,7 +98,20 @@ router.get('/all', async (req, res) => {
 
     const epapers = await Epaper.find()
       .sort({ date: -1 })
-      .select('-__v');
+      .select('-__v')
+      .lean();
+    
+    // Sort pages by sortOrder for each epaper
+    epapers.forEach(epaper => {
+      if (epaper.pages && Array.isArray(epaper.pages)) {
+        epaper.pages.sort((a, b) => {
+          const orderA = a.sortOrder !== undefined ? a.sortOrder : a.pageNo;
+          const orderB = b.sortOrder !== undefined ? b.sortOrder : b.pageNo;
+          return orderA - orderB;
+        });
+      }
+    });
+    
     res.json(epapers);
   } catch (error) {
     console.error('Error fetching all epapers:', error);
@@ -86,10 +128,20 @@ router.get('/all', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const epaper = await Epaper.findOne({ id: parseInt(req.params.id) })
-      .select('-__v');
+      .select('-__v')
+      .lean();
     
     if (!epaper) {
       return res.status(404).json({ error: 'Epaper not found' });
+    }
+    
+    // Sort pages by sortOrder
+    if (epaper.pages && Array.isArray(epaper.pages)) {
+      epaper.pages.sort((a, b) => {
+        const orderA = a.sortOrder !== undefined ? a.sortOrder : a.pageNo;
+        const orderB = b.sortOrder !== undefined ? b.sortOrder : b.pageNo;
+        return orderA - orderB;
+      });
     }
     
     res.json(epaper);
@@ -160,11 +212,14 @@ router.post('/upload', upload.single('pdf'), async (req, res) => {
     res.status(201).json(epaper);
   } catch (error) {
     console.error('Error uploading e-paper:', error);
+    console.error('Error stack:', error.stack);
     
     // Clean up on error
-    if (req.file) {
+    if (req.file && req.file.path) {
       try {
-        fs.unlinkSync(req.file.path);
+        if (fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
       } catch (e) {
         console.error('Error cleaning up file:', e);
       }
@@ -173,7 +228,165 @@ router.post('/upload', upload.single('pdf'), async (req, res) => {
 
     res.status(500).json({ 
       error: 'Failed to upload e-paper', 
-      details: error.message 
+      details: error.message,
+      ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
+    });
+  }
+});
+
+// POST /api/epapers/upload-page - Upload individual page image
+router.post('/upload-page', uploadImage.single('image'), async (req, res) => {
+  const startTime = Date.now();
+  const requestId = Date.now().toString().slice(-6);
+  
+  try {
+    console.log(`\n[${requestId}] 📥 Received upload request for page`);
+    
+    if (!req.file) {
+      console.error(`[${requestId}] ❌ No file uploaded`);
+      return res.status(400).json({ error: 'No image file uploaded' });
+    }
+
+    const { epaperId, pageNo, sortOrder, title, date } = req.body;
+    const fileSizeMB = (req.file.size / (1024 * 1024)).toFixed(2);
+    
+    console.log(`[${requestId}] 📊 Request details:`);
+    console.log(`   E-paper ID: ${epaperId}`);
+    console.log(`   Page No: ${pageNo}`);
+    console.log(`   Sort Order: ${sortOrder || pageNo}`);
+    console.log(`   File: ${req.file.originalname || req.file.filename}`);
+    console.log(`   File size: ${fileSizeMB} MB`);
+    console.log(`   Temp path: ${req.file.path}`);
+    
+    if (!epaperId || !pageNo) {
+      console.error(`[${requestId}] ❌ Missing epaperId or pageNo`);
+      return res.status(400).json({ error: 'epaperId and pageNo are required' });
+    }
+
+    // Step 1: Read image file
+    console.log(`[${requestId}] 📖 Step 1: Reading image file...`);
+    const readStartTime = Date.now();
+    const imageBuffer = fs.readFileSync(req.file.path);
+    const readTime = ((Date.now() - readStartTime) / 1000).toFixed(2);
+    console.log(`[${requestId}] ✅ File read in ${readTime}s (${(imageBuffer.length / (1024 * 1024)).toFixed(2)} MB)`);
+    
+    // Step 2: Get image dimensions using sharp
+    console.log(`[${requestId}] 📐 Step 2: Getting image metadata...`);
+    const metadataStartTime = Date.now();
+    const metadata = await sharp(imageBuffer).metadata();
+    const metadataTime = ((Date.now() - metadataStartTime) / 1000).toFixed(2);
+    console.log(`[${requestId}] ✅ Metadata extracted in ${metadataTime}s`);
+    console.log(`   Dimensions: ${metadata.width}x${metadata.height}`);
+    console.log(`   Format: ${metadata.format}`);
+
+    // Step 3: Upload to Cloudinary
+    console.log(`[${requestId}] ☁️  Step 3: Uploading to Cloudinary...`);
+    const cloudinaryStartTime = Date.now();
+    const uploadResult = await uploadEpaperPage(
+      imageBuffer,
+      parseInt(epaperId),
+      parseInt(pageNo)
+    );
+    const cloudinaryTime = ((Date.now() - cloudinaryStartTime) / 1000).toFixed(2);
+    console.log(`[${requestId}] ✅ Cloudinary upload completed in ${cloudinaryTime}s`);
+    console.log(`   Image URL: ${uploadResult.imageUrl.substring(0, 50)}...`);
+
+    // Step 4: Find or create e-paper
+    console.log(`[${requestId}] 💾 Step 4: Finding/creating e-paper in database...`);
+    const dbStartTime = Date.now();
+    let epaper = await Epaper.findOne({ id: parseInt(epaperId) });
+    
+    if (!epaper) {
+      console.log(`[${requestId}] 📄 Creating new e-paper...`);
+      if (!title || !date) {
+        console.error(`[${requestId}] ❌ Title and date required for new e-paper`);
+        return res.status(400).json({ error: 'Title and date are required for new e-paper' });
+      }
+      
+      epaper = new Epaper({
+        id: parseInt(epaperId),
+        title,
+        date: new Date(date),
+        status: 'published',
+        pages: []
+      });
+      console.log(`[${requestId}] ✅ New e-paper created`);
+    } else {
+      console.log(`[${requestId}] ✅ Found existing e-paper with ${epaper.pages.length} pages`);
+    }
+
+    // Step 5: Add or update page
+    console.log(`[${requestId}] 📄 Step 5: Adding/updating page...`);
+    const pageSortOrder = sortOrder ? parseInt(sortOrder) : parseInt(pageNo);
+    const pageIndex = epaper.pages.findIndex(p => p.pageNo === parseInt(pageNo));
+    const newPage = {
+      pageNo: parseInt(pageNo),
+      sortOrder: pageSortOrder, // Store sortOrder
+      image: uploadResult.imageUrl,
+      thumbnail: uploadResult.thumbnailUrl,
+      width: metadata.width,
+      height: metadata.height,
+      news: []
+    };
+
+    if (pageIndex >= 0) {
+      console.log(`[${requestId}] 🔄 Updating existing page ${pageNo} with sortOrder ${pageSortOrder}`);
+      epaper.pages[pageIndex] = newPage;
+    } else {
+      console.log(`[${requestId}] ➕ Adding new page ${pageNo} with sortOrder ${pageSortOrder}`);
+      epaper.pages.push(newPage);
+    }
+    
+    // Sort pages by sortOrder (fallback to pageNo if sortOrder not available)
+    epaper.pages.sort((a, b) => {
+      const orderA = a.sortOrder !== undefined ? a.sortOrder : a.pageNo;
+      const orderB = b.sortOrder !== undefined ? b.sortOrder : b.pageNo;
+      return orderA - orderB;
+    });
+
+    // Step 6: Save to database
+    console.log(`[${requestId}] 💾 Step 6: Saving to database...`);
+    const saveStartTime = Date.now();
+    await epaper.save();
+    const saveTime = ((Date.now() - saveStartTime) / 1000).toFixed(2);
+    console.log(`[${requestId}] ✅ Database save completed in ${saveTime}s`);
+
+    // Step 7: Clean up temp file
+    console.log(`[${requestId}] 🧹 Step 7: Cleaning up temp file...`);
+    if (fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+      console.log(`[${requestId}] ✅ Temp file deleted`);
+    }
+
+    const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`[${requestId}] 🎉 Upload completed successfully in ${totalTime}s`);
+    console.log(`   Breakdown: Read(${readTime}s) + Metadata(${metadataTime}s) + Cloudinary(${cloudinaryTime}s) + DB(${saveTime}s)`);
+
+    res.status(201).json({
+      success: true,
+      page: newPage,
+      epaper: epaper
+    });
+  } catch (error) {
+    const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.error(`\n[${requestId}] ❌ Upload failed after ${totalTime}s`);
+    console.error(`[${requestId}] Error:`, error.message);
+    console.error(`[${requestId}] Stack:`, error.stack);
+    
+    // Clean up on error
+    if (req.file && req.file.path && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+        console.log(`[${requestId}] 🧹 Temp file cleaned up after error`);
+      } catch (e) {
+        console.error(`[${requestId}] ❌ Error cleaning up file:`, e);
+      }
+    }
+
+    res.status(500).json({ 
+      error: 'Failed to upload page', 
+      details: error.message,
+      ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
     });
   }
 });

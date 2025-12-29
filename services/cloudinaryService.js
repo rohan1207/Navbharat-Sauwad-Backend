@@ -26,24 +26,20 @@ export const uploadEpaperPage = async (imageBuffer, epaperId, pageNo) => {
         folder: `epapers/${epaperId}/pages`,
         public_id: `page-${pageNo}`,
         resource_type: 'image',
-        format: 'jpg',
-        quality: 'auto',
-        fetch_format: 'auto', // Auto WebP conversion
-        transformation: [
-          { quality: 'auto' },
-          { fetch_format: 'auto' }
-        ]
+        quality: 'auto:best', // Best quality with auto optimization
+        fetch_format: 'auto', // Auto WebP/AVIF conversion when beneficial
+        // Removed format: 'jpg' to preserve original format or use fetch_format
       },
       (error, result) => {
         if (error) {
           console.error('Cloudinary upload error:', error);
           reject(error);
         } else {
-          // Generate thumbnail URL
+          // Generate thumbnail URL with high quality
           const thumbnailUrl = cloudinary.url(result.public_id, {
             transformation: [
               { width: 800, height: 1000, crop: 'limit' },
-              { quality: 'auto' },
+              { quality: 'auto:best' }, // Best quality for thumbnails
               { fetch_format: 'auto' }
             ]
           });
@@ -82,7 +78,7 @@ export const uploadEpaperPage = async (imageBuffer, epaperId, pageNo) => {
  */
 export const getOptimizedUrl = (publicId, options = {}) => {
   return cloudinary.url(publicId, {
-    quality: 'auto',
+    quality: 'auto:best', // Best quality by default
     fetch_format: 'auto',
     ...options
   });
@@ -107,7 +103,7 @@ export const getCroppedUrl = (publicId, x, y, width, height) => {
         width: Math.round(width),
         height: Math.round(height)
       },
-      { quality: 'auto' },
+      { quality: 'auto:best' }, // Best quality for cropped images
       { fetch_format: 'auto' }
     ]
   });

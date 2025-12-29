@@ -6,6 +6,8 @@ import { dirname, join } from 'path';
 import mongoose from 'mongoose';
 import connectDB from './config/database.js';
 import epaperRoutes from './routes/epapers.js';
+import adminRoutes from './routes/admin.js';
+import articleRoutes from './routes/articles.js';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +20,7 @@ dotenv.config({ path: join(__dirname, '.env') });
 console.log('🔍 Environment check:');
 console.log('  MONGODB_URI:', process.env.MONGODB_URI ? '✅ Set' : '❌ Missing');
 console.log('  CLOUDINARY_CLOUD_NAME:', process.env.CLOUDINARY_CLOUD_NAME ? '✅ Set' : '❌ Missing');
+console.log('  PORT:', process.env.PORT || 5001);
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -57,6 +60,8 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Routes
 app.use('/api/epapers', epaperRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/articles', articleRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -88,21 +93,69 @@ app.use((req, res) => {
 // Connect to MongoDB and start server
 const startServer = async () => {
   try {
-    // Connect to MongoDB first
-    await connectDB();
+    console.log('');
+    console.log('⚙️  Initializing server...');
+    const initStartTime = Date.now();
+    
+    // Check if already connected (useful for hot reloads)
+    if (mongoose.connection.readyState === 1) {
+      console.log('✅ MongoDB already connected, skipping connection step');
+    } else {
+      console.log('🔄 Starting server...');
+      console.log('📡 Attempting to connect to MongoDB...');
+      
+      // Set a timeout for MongoDB connection (reduced to 8 seconds)
+      const connectionPromise = connectDB();
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('MongoDB connection timeout after 8 seconds. Check your MONGODB_URI and network connection.'));
+        }, 8000);
+      });
+      
+      // Connect to MongoDB first with timeout
+      await Promise.race([connectionPromise, timeoutPromise]);
+      console.log('✅ MongoDB connected successfully');
+    }
+    
+    console.log('🌐 Starting HTTP server...');
     
     // Start server after database connection
     app.listen(PORT, () => {
+      const totalTime = ((Date.now() - initStartTime) / 1000).toFixed(2);
+      console.log('');
+      console.log('═══════════════════════════════════════════════════');
       console.log(`🚀 Server is running on http://localhost:${PORT}`);
       console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`💾 Database: MongoDB`);
       console.log(`☁️  Storage: Cloudinary`);
+      console.log(`📡 API Base: http://localhost:${PORT}/api`);
+      console.log(`⏱️  Startup time: ${totalTime} seconds`);
+      console.log('═══════════════════════════════════════════════════');
+      console.log('');
     });
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
+    console.error('');
+    console.error('═══════════════════════════════════════════════════');
+    console.error('❌ Failed to start server');
+    console.error('═══════════════════════════════════════════════════');
+    console.error('Error:', error.message);
+    if (error.stack) {
+      console.error('Stack:', error.stack);
+    }
+    console.error('');
+    console.error('💡 Troubleshooting:');
+    console.error('   1. Check if MONGODB_URI is set in .env file');
+    console.error('   2. Verify MongoDB connection string is correct');
+    console.error('   3. Check your internet connection');
+    console.error('   4. Ensure MongoDB Atlas IP whitelist includes your IP');
+    console.error('═══════════════════════════════════════════════════');
+    console.error('');
     process.exit(1);
   }
 };
 
 // Start the server
-startServer();
+startServer().catch((error) => {
+  console.error('❌ Unhandled error in startServer:', error);
+  process.exit(1);
+});

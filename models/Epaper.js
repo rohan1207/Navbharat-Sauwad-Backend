@@ -6,8 +6,9 @@ const newsItemSchema = new mongoose.Schema({
   y: { type: Number, required: true },
   width: { type: Number, required: true },
   height: { type: Number, required: true },
-  title: { type: String, required: true },
-  content: { type: String, required: true },
+  // Made optional for simplified version 2 (cropped image only)
+  title: { type: String, required: false, default: '' },
+  content: { type: String, required: false, default: '' },
   articleId: { 
     type: mongoose.Schema.Types.Mixed, 
     default: null,

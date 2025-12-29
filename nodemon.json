@@ -1,0 +1,10 @@
+{
+  "watch": ["server.js", "routes", "models", "services", "config", "controllers", "middleware"],
+  "ignore": ["temp/**/*", "node_modules/**/*", "*.log"],
+  "ext": "js,json",
+  "exec": "node server.js",
+  "env": {
+    "NODE_ENV": "development"
+  }
+}
+
