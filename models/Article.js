@@ -77,6 +77,12 @@ const articleSchema = new mongoose.Schema({
   metaDescription: {
     type: String,
     default: ''
+  },
+  slug: {
+    type: String,
+    unique: true,
+    sparse: true, // Allow null/undefined, but enforce uniqueness when present
+    trim: true
   }
 }, {
   timestamps: true
@@ -88,6 +94,26 @@ articleSchema.index({ status: 1, publishedAt: -1 });
 articleSchema.index({ isFeatured: 1, publishedAt: -1 });
 articleSchema.index({ isBreaking: 1, publishedAt: -1 });
 articleSchema.index({ scheduledAt: 1 });
+articleSchema.index({ slug: 1 }); // Index for slug lookups
+
+// Pre-save hook to auto-generate slug from title
+articleSchema.pre('save', async function(next) {
+  // Only generate slug if it doesn't exist and title exists
+  if (!this.slug && this.title) {
+    try {
+      const { generateUniqueSlug } = await import('../utils/slugGenerator.js');
+      this.slug = await generateUniqueSlug(
+        mongoose.models.Article || Article,
+        this.title,
+        this._id
+      );
+    } catch (error) {
+      console.error('Error generating slug:', error);
+      // Continue even if slug generation fails
+    }
+  }
+  next();
+});
 
 // Check if model already exists to prevent overwrite errors during hot reload
 const Article = mongoose.models.Article || mongoose.model('Article', articleSchema);

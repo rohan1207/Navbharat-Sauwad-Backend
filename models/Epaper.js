@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 
 const newsItemSchema = new mongoose.Schema({
   id: { type: Number, required: true },
+  slug: { type: String, trim: true },
   x: { type: Number, required: true },
   y: { type: Number, required: true },
   width: { type: Number, required: true },
@@ -33,6 +34,13 @@ const pageSchema = new mongoose.Schema({
 const epaperSchema = new mongoose.Schema({
   id: { type: Number, required: true, unique: true },
   title: { type: String, required: true },
+  slug: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true,
+    index: true
+  },
   date: { type: Date, required: true },
   status: { 
     type: String, 
@@ -45,13 +53,48 @@ const epaperSchema = new mongoose.Schema({
 }, { strict: false }); // Allow extra fields to be ignored
 
 // Update updatedAt before saving
-epaperSchema.pre('save', function(next) {
+epaperSchema.pre('save', async function(next) {
   this.updatedAt = new Date();
+  
+  // Auto-generate slug from title if it doesn't exist
+  if (!this.slug && this.title) {
+    try {
+      const { generateUniqueSlug } = await import('../utils/slugGenerator.js');
+      this.slug = await generateUniqueSlug(
+        mongoose.models.Epaper || Epaper,
+        this.title,
+        this._id
+      );
+    } catch (error) {
+      console.error('Error generating e-paper slug:', error);
+      // Continue even if slug generation fails
+    }
+  }
+  
+  // Auto-generate slugs for sections (news items) if they don't have slugs
+  if (this.pages && Array.isArray(this.pages)) {
+    const { generateSlug } = await import('../utils/slugGenerator.js');
+    for (const page of this.pages) {
+      if (page.news && Array.isArray(page.news)) {
+        for (const newsItem of page.news) {
+          if (!newsItem.slug) {
+            const textForSlug = newsItem.title || 
+              (newsItem.content ? newsItem.content.substring(0, 100) : '');
+            if (textForSlug) {
+              newsItem.slug = generateSlug(textForSlug);
+            }
+          }
+        }
+      }
+    }
+  }
+  
   next();
 });
 
 // Index for faster queries
 epaperSchema.index({ id: 1 });
+epaperSchema.index({ slug: 1 });
 epaperSchema.index({ date: -1 });
 epaperSchema.index({ status: 1 });
 

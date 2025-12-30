@@ -124,12 +124,22 @@ router.get('/all', async (req, res) => {
   }
 });
 
-// GET /api/epapers/:id - Get a specific epaper
+// GET /api/epapers/:id - Get a specific epaper (supports both slug and ID)
 router.get('/:id', async (req, res) => {
   try {
-    const epaper = await Epaper.findOne({ id: parseInt(req.params.id) })
-      .select('-__v')
-      .lean();
+    const { id } = req.params;
+    
+    // Try to find by slug first, then by ID
+    let epaper;
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      epaper = await Epaper.findById(id).select('-__v').lean();
+    } else if (!isNaN(id)) {
+      // It's a number ID
+      epaper = await Epaper.findOne({ id: parseInt(id) }).select('-__v').lean();
+    } else {
+      // It's likely a slug
+      epaper = await Epaper.findOne({ slug: id }).select('-__v').lean();
+    }
     
     if (!epaper) {
       return res.status(404).json({ error: 'Epaper not found' });

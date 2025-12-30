@@ -45,25 +45,35 @@ export const getArticles = async (req, res) => {
   }
 };
 
-// Get single article
+// Get single article (supports both slug and ID)
 export const getArticle = async (req, res) => {
   try {
     const { id } = req.params;
     
     // Validate ID
     if (!id || id === 'undefined' || id === 'null') {
-      return res.status(400).json({ error: 'Invalid article ID' });
+      return res.status(400).json({ error: 'Invalid article identifier' });
     }
     
-    // Validate ObjectId format
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'Invalid article ID format' });
-    }
+    let article;
     
-    const article = await Article.findById(id)
-      .populate('categoryId', 'name nameEn')
-      .populate('subCategoryId', 'name nameEn')
-      .populate('authorId', 'name designation profileImage');
+    // Try to find by slug first (if it's not a valid ObjectId)
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      // It's a valid ObjectId, try finding by ID
+      article = await Article.findById(id)
+        .populate('categoryId', 'name nameEn')
+        .populate('subCategoryId', 'name nameEn')
+        .populate('authorId', 'name designation profileImage');
+      
+      // If found by ID and has slug, optionally redirect to slug URL (for SEO)
+      // But for API, we'll just return the article
+    } else {
+      // It's likely a slug, try finding by slug
+      article = await Article.findOne({ slug: id })
+        .populate('categoryId', 'name nameEn')
+        .populate('subCategoryId', 'name nameEn')
+        .populate('authorId', 'name designation profileImage');
+    }
     
     if (!article) {
       return res.status(404).json({ error: 'Article not found' });
@@ -116,7 +126,7 @@ export const createArticle = async (req, res) => {
   }
 };
 
-// Update article
+// Update article (supports both slug and ID)
 export const updateArticle = async (req, res) => {
   try {
     const { id } = req.params;
@@ -138,20 +148,29 @@ export const updateArticle = async (req, res) => {
       updateData.publishedAt = new Date();
     }
     
-    const article = await Article.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    )
-      .populate('categoryId', 'name nameEn')
-      .populate('subCategoryId', 'name nameEn')
-      .populate('authorId', 'name designation');
+    // Find article by ID or slug
+    let article;
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      article = await Article.findById(id);
+    } else {
+      article = await Article.findOne({ slug: id });
+    }
     
     if (!article) {
       return res.status(404).json({ error: 'Article not found' });
     }
     
-    res.json(article);
+    // Update the article
+    Object.assign(article, updateData);
+    await article.save();
+    
+    // Populate and return
+    const populatedArticle = await Article.findById(article._id)
+      .populate('categoryId', 'name nameEn')
+      .populate('subCategoryId', 'name nameEn')
+      .populate('authorId', 'name designation');
+    
+    res.json(populatedArticle);
   } catch (error) {
     console.error('Error updating article:', error);
     // Provide more detailed error message
@@ -162,10 +181,17 @@ export const updateArticle = async (req, res) => {
   }
 };
 
-// Delete article
+// Delete article (supports both slug and ID)
 export const deleteArticle = async (req, res) => {
   try {
-    const article = await Article.findByIdAndDelete(req.params.id);
+    const { id } = req.params;
+    
+    let article;
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      article = await Article.findByIdAndDelete(id);
+    } else {
+      article = await Article.findOneAndDelete({ slug: id });
+    }
     
     if (!article) {
       return res.status(404).json({ error: 'Article not found' });
@@ -215,10 +241,19 @@ export const bulkAction = async (req, res) => {
   }
 };
 
-// Increment views
+// Increment views (supports both slug and ID)
 export const incrementViews = async (req, res) => {
   try {
-    await Article.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } });
+    const { id } = req.params;
+    
+    let updateQuery;
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      updateQuery = { _id: id };
+    } else {
+      updateQuery = { slug: id };
+    }
+    
+    await Article.findOneAndUpdate(updateQuery, { $inc: { views: 1 } });
     res.json({ success: true });
   } catch (error) {
     console.error('Error incrementing views:', error);

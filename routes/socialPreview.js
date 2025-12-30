@@ -73,10 +73,17 @@ router.get('/news/:id', async (req, res) => {
       return res.redirect(`${baseUrl}/news/${id}`);
     }
     
-    // Fetch article - include all image fields
-    const article = await Article.findById(id)
-      .populate('categoryId', 'name')
-      .select('title summary content featuredImage imageGallery createdAt publishedAt');
+    // Fetch article by slug or ID - include all image fields
+    let article;
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      article = await Article.findById(id)
+        .populate('categoryId', 'name')
+        .select('title summary content featuredImage imageGallery createdAt publishedAt slug');
+    } else {
+      article = await Article.findOne({ slug: id })
+        .populate('categoryId', 'name')
+        .select('title summary content featuredImage imageGallery createdAt publishedAt slug');
+    }
     
     if (!article) {
       return res.status(404).send(`
@@ -251,10 +258,12 @@ router.get('/epaper/:id/page/:pageNo/section/:sectionId', async (req, res) => {
       `);
     }
     
-    // Find the section
+    // Find the section by slug or ID
     const section = page.news?.find(s => {
       const sId = s.id !== undefined ? s.id : s._id;
-      return String(sId) === String(sectionId);
+      const sSlug = s.slug;
+      // Match by slug first, then by ID
+      return (sSlug && sSlug === sectionId) || String(sId) === String(sectionId);
     });
     
     // Generate cropped image URL if section exists
@@ -411,12 +420,14 @@ router.get('/epaper/:id', async (req, res) => {
       return res.redirect(`${baseUrl}/epaper/${id}`);
     }
     
-    // Fetch e-paper - EPaper uses 'id' (number) not '_id' (ObjectId)
+    // Fetch e-paper - supports slug or ID
     let epaper;
     if (mongoose.Types.ObjectId.isValid(id)) {
-      epaper = await Epaper.findById(id).select('title date thumbnail pages');
+      epaper = await Epaper.findById(id).select('title date thumbnail pages slug');
+    } else if (!isNaN(id)) {
+      epaper = await Epaper.findOne({ id: parseInt(id) }).select('title date thumbnail pages slug');
     } else {
-      epaper = await Epaper.findOne({ id: parseInt(id) }).select('title date thumbnail pages');
+      epaper = await Epaper.findOne({ slug: id }).select('title date thumbnail pages slug');
     }
     
     if (!epaper) {
