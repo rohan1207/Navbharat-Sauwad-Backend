@@ -8,6 +8,13 @@ import connectDB from './config/database.js';
 import epaperRoutes from './routes/epapers.js';
 import adminRoutes from './routes/admin.js';
 import articleRoutes from './routes/articles.js';
+import adRoutes from './routes/ads.js';
+import ttsRoutes from './routes/tts.js';
+import photoOfTheDayRoutes from './routes/photoOfTheDay.js';
+import shortsRoutes from './routes/shorts.js';
+import sportsRoutes from './routes/sports.js';
+import metaRoutes from './routes/meta.js';
+import socialPreviewRoutes from './routes/socialPreview.js';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -58,10 +65,22 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Routes
+// Social media preview routes (MUST be before API routes to catch crawler requests)
+// These routes serve HTML with meta tags for WhatsApp, Facebook, Twitter crawlers
+// When crawlers visit /news/:id or /epaper/:id, they get HTML with proper meta tags
+app.use('/', socialPreviewRoutes);
+
+// API Routes
 app.use('/api/epapers', epaperRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/articles', articleRoutes);
+app.use('/api/admin/ads', adRoutes);
+app.use('/api/ads', adRoutes); // Public route for frontend
+app.use('/api/tts', ttsRoutes); // TTS proxy route
+app.use('/api/photo-of-the-day', photoOfTheDayRoutes); // Photo of the Day route
+app.use('/api/shorts', shortsRoutes); // Shorts route
+app.use('/api/sports', sportsRoutes); // Sports Monk API routes
+app.use('/api/meta', metaRoutes); // Meta tags route
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

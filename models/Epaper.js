@@ -55,7 +55,8 @@ epaperSchema.index({ id: 1 });
 epaperSchema.index({ date: -1 });
 epaperSchema.index({ status: 1 });
 
-const Epaper = mongoose.model('Epaper', epaperSchema);
+// Check if model already exists to prevent overwrite errors during hot reload
+const Epaper = mongoose.models.Epaper || mongoose.model('Epaper', epaperSchema);
 
 export default Epaper;
 

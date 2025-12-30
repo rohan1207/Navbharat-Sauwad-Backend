@@ -10,13 +10,14 @@ const articleSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  // Kept for backward compatibility but no longer used in forms/frontend
   subtitle: {
     type: String,
     trim: true
   },
+  // Previously required "description"; now optional so new articles can rely on content only
   summary: {
-    type: String,
-    required: true
+    type: String
   },
   content: {
     type: String,
@@ -88,7 +89,8 @@ articleSchema.index({ isFeatured: 1, publishedAt: -1 });
 articleSchema.index({ isBreaking: 1, publishedAt: -1 });
 articleSchema.index({ scheduledAt: 1 });
 
-const Article = mongoose.model('Article', articleSchema);
+// Check if model already exists to prevent overwrite errors during hot reload
+const Article = mongoose.models.Article || mongoose.model('Article', articleSchema);
 
 export default Article;
 
