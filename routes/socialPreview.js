@@ -19,9 +19,11 @@ const getAbsoluteImageUrl = (imgUrl, baseUrl) => {
   if (!imgUrl || imgUrl.trim() === '') {
     return `${baseUrl}/logo1.png`;
   }
+  // If already absolute URL (Cloudinary or other CDN)
   if (imgUrl.startsWith('http://') || imgUrl.startsWith('https://')) {
     return imgUrl;
   }
+  // If relative URL, make it absolute
   return `${baseUrl}${imgUrl.startsWith('/') ? '' : '/'}${imgUrl}`;
 };
 
@@ -51,9 +53,23 @@ router.get('/news/:id', async (req, res) => {
       (article.content ? getPlainText(article.content).substring(0, 200) : '') ||
       article.title || '';
     
-    // Get image
-    const imageUrl = article.featuredImage || article.image || `${baseUrl}/logo1.png`;
+    // Get image - ensure it's a valid Cloudinary URL or absolute URL
+    let imageUrl = article.featuredImage || article.image;
+    
+    // If no image, use default logo
+    if (!imageUrl || imageUrl.trim() === '') {
+      imageUrl = `${baseUrl}/logo1.png`;
+    }
+    
+    // Ensure image URL is absolute (Cloudinary URLs are already absolute)
     const absoluteImage = getAbsoluteImageUrl(imageUrl, baseUrl);
+    
+    // Log for debugging (can be removed in production)
+    console.log('Article preview image:', {
+      original: imageUrl,
+      absolute: absoluteImage,
+      hasCloudinary: absoluteImage.includes('cloudinary.com')
+    });
     
     const articleUrl = `${baseUrl}/news/${id}`;
     const siteName = 'नव मंच - Nav Manch';

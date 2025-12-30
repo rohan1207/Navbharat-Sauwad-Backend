@@ -29,19 +29,33 @@ export const getTTS = async (req, res) => {
     // Get audio data as buffer
     const audioBuffer = await response.arrayBuffer();
 
-    // Set appropriate headers
+    // Set appropriate headers with CORS
     res.set({
       'Content-Type': 'audio/mpeg',
       'Content-Length': audioBuffer.byteLength,
       'Cache-Control': 'public, max-age=3600',
       'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
     });
 
     // Send the audio data
     res.send(Buffer.from(audioBuffer));
   } catch (error) {
     console.error('TTS Error:', error.message);
-    res.status(500).json({ error: 'Failed to generate TTS audio' });
+    console.error('TTS Error Stack:', error.stack);
+    
+    // Return proper error response with CORS headers
+    res.set({
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    });
+    
+    res.status(500).json({ 
+      error: 'Failed to generate TTS audio',
+      message: error.message 
+    });
   }
 };
 
