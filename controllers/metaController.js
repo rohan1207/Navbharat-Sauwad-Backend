@@ -1,5 +1,5 @@
 import Article from '../models/Article.js';
-import EPaper from '../models/EPaper.js';
+import Epaper from '../models/Epaper.js';
 
 // Get meta tags for a given URL path
 export const getMetaTags = async (req, res) => {
@@ -68,7 +68,7 @@ export const getMetaTags = async (req, res) => {
     if (epaperMatch) {
       const epaperId = epaperMatch[1];
       try {
-        const epaper = await EPaper.findById(epaperId)
+        const epaper = await Epaper.findById(epaperId)
           .select('title date thumbnail');
         
         if (epaper) {

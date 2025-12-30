@@ -1,7 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import Article from '../models/Article.js';
-import Epaper from '../models/EPaper.js';
+import Epaper from '../models/Epaper.js';
 
 const router = express.Router();
 

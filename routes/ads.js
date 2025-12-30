@@ -52,25 +52,40 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Get active ads by position (frontend)
+// Get active ads by position (frontend) - MUST be before /:id route
 router.get('/active/:position', async (req, res) => {
   try {
     const { position } = req.params;
+    
+    console.log('Fetching active ads for position:', position);
+    
+    // Validate position parameter
+    if (!position) {
+      return res.status(400).json({ error: 'Position parameter is required' });
+    }
+    
     const ads = await Ad.find({ 
       position, 
       isActive: true 
     }).sort({ order: 1, createdAt: -1 });
     
+    console.log(`Found ${ads.length} active ads for position: ${position}`);
+    
     res.json(ads);
   } catch (error) {
     console.error('Error fetching active ads:', error);
-    res.status(500).json({ error: 'Failed to fetch ads' });
+    res.status(500).json({ error: 'Failed to fetch ads', details: error.message });
   }
 });
 
-// Get single ad
+// Get single ad - MUST be after /active/:position route
 router.get('/:id', async (req, res) => {
   try {
+    // Don't match if it's an 'active' route (should have been caught above)
+    if (req.params.id === 'active') {
+      return res.status(404).json({ error: 'Route not found' });
+    }
+    
     const ad = await Ad.findById(req.params.id);
     if (!ad) {
       return res.status(404).json({ error: 'Ad not found' });
