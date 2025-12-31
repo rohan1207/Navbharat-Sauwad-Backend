@@ -15,6 +15,7 @@ import shortsRoutes from './routes/shorts.js';
 import sportsRoutes from './routes/sports.js';
 import metaRoutes from './routes/meta.js';
 import socialPreviewRoutes from './routes/socialPreview.js';
+import subscriberRoutes from './routes/subscribers.js';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -86,6 +87,7 @@ app.use('/api/photo-of-the-day', photoOfTheDayRoutes); // Photo of the Day route
 app.use('/api/shorts', shortsRoutes); // Shorts route
 app.use('/api/sports', sportsRoutes); // Sports Monk API routes
 app.use('/api/meta', metaRoutes); // Meta tags route
+app.use('/api/subscribers', subscriberRoutes); // Subscribers route
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

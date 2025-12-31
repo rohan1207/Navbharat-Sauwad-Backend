@@ -132,7 +132,9 @@ router.get('/news/:id', async (req, res) => {
       userAgent: userAgent.substring(0, 50)
     });
     
-    const articleUrl = `${baseUrl}/news/${id}`;
+    // Always use article ID in URL (not slug) for cleaner, more trustworthy URLs
+    const articleId = article._id ? String(article._id) : id;
+    const articleUrl = `${baseUrl}/news/${articleId}`;
     const siteName = 'नव मंच - Nav Manch';
     
     // Escape HTML entities properly
@@ -228,12 +230,14 @@ router.get('/epaper/:id/page/:pageNo/section/:sectionId', async (req, res) => {
       return res.redirect(`${baseUrl}/epaper/${id}/page/${pageNo}/section/${sectionId}`);
     }
     
-    // Fetch e-paper - EPaper uses 'id' (number) not '_id' (ObjectId)
+    // Fetch e-paper - supports slug or ID
     let epaper;
     if (mongoose.Types.ObjectId.isValid(id)) {
-      epaper = await Epaper.findById(id).select('title date pages thumbnail');
+      epaper = await Epaper.findById(id).select('title date pages thumbnail slug');
+    } else if (!isNaN(id)) {
+      epaper = await Epaper.findOne({ id: parseInt(id) }).select('title date pages thumbnail slug');
     } else {
-      epaper = await Epaper.findOne({ id: parseInt(id) }).select('title date pages thumbnail');
+      epaper = await Epaper.findOne({ slug: id }).select('title date pages thumbnail slug');
     }
     
     if (!epaper) {
@@ -274,29 +278,23 @@ router.get('/epaper/:id/page/:pageNo/section/:sectionId', async (req, res) => {
       imageUrl = `${baseUrl}/logo1.png`;
     }
     
-    // Generate Cloudinary cropped URL if section exists and page has Cloudinary image
-    if (section && section.width && section.height && page.image && page.image.includes('cloudinary.com')) {
-      try {
-        const uploadIndex = page.image.indexOf('/image/upload/');
-        if (uploadIndex !== -1) {
-          const baseUrlCloudinary = page.image.substring(0, uploadIndex + '/image/upload'.length);
-          const afterUpload = page.image.substring(uploadIndex + '/image/upload/'.length);
-          const transformations = [
-            `c_crop`,
-            `w_${Math.round(section.width)}`,
-            `h_${Math.round(section.height)}`,
-            `x_${Math.round(section.x)}`,
-            `y_${Math.round(section.y)}`,
-            `q_auto:best`,
-            `f_auto`
-          ].join(',');
-          imageUrl = `${baseUrlCloudinary}/${transformations}/${afterUpload}`;
-        }
-      } catch (error) {
-        console.error('Error generating cropped URL:', error);
-        // Fallback to full page image
-        imageUrl = page.image || epaper.thumbnail || `${baseUrl}/logo1.png`;
-      }
+    // For section share cards, use the full page image instead of cropped section
+    // This is more reliable and shows the complete context
+    // The full page image works correctly (as seen in e-paper share cards)
+    // No need to crop - just use the page image directly
+    if (section) {
+      // Always use full page image for section share cards
+      imageUrl = page.image || epaper.thumbnail || imageUrl;
+      console.log('Using full page image for section share card:', {
+        pageImage: page.image,
+        thumbnail: epaper.thumbnail,
+        finalImage: imageUrl
+      });
+    }
+    
+    // Final fallback - ensure we always have a valid image URL
+    if (!imageUrl || imageUrl.trim() === '') {
+      imageUrl = `${baseUrl}/logo1.png`;
     }
     
     // Get properly formatted absolute image URL
@@ -324,7 +322,32 @@ router.get('/epaper/:id/page/:pageNo/section/:sectionId', async (req, res) => {
       ? getPlainText(section.content).substring(0, 200)
       : `${epaperTitle} - पृष्ठ ${pageNo}`;
     
-    const sectionUrl = `${baseUrl}/epaper/${id}/page/${pageNo}/section/${sectionId}`;
+    // Use IDs in URLs for sections to avoid "Untitled" slugs and encoded characters
+    // This provides cleaner, more trustworthy URLs
+    // For e-paper, use slug if meaningful, otherwise use ID
+    let epaperIdentifier;
+    if (epaper.slug && epaper.slug.trim() !== '' && epaper.slug.toLowerCase() !== 'untitled') {
+      epaperIdentifier = epaper.slug;
+    } else {
+      // Use ID for cleaner URL (avoid encoded characters)
+      epaperIdentifier = epaper.id !== undefined ? String(epaper.id) : (epaper._id ? String(epaper._id) : id);
+    }
+    
+    // Always use ID for sections (never use "Untitled" slug)
+    let sectionIdentifier;
+    if (section) {
+      if (section.id !== undefined && section.id !== null) {
+        sectionIdentifier = String(section.id);
+      } else if (section._id) {
+        sectionIdentifier = String(section._id);
+      } else {
+        sectionIdentifier = sectionId; // Fallback to what was in URL
+      }
+    } else {
+      sectionIdentifier = sectionId;
+    }
+    
+    const sectionUrl = `${baseUrl}/epaper/${epaperIdentifier}/page/${pageNo}/section/${sectionIdentifier}`;
     const siteName = 'नव मंच - Nav Manch';
     
     // Escape HTML entities properly
@@ -461,7 +484,16 @@ router.get('/epaper/:id', async (req, res) => {
     const title = `${epaperTitle} - नव मंच`;
     const description = `${epaperTitle} - ${dateStr}`;
     
-    const epaperUrl = `${baseUrl}/epaper/${id}`;
+    // Use ID for cleaner URL (avoid encoded characters for better trust)
+    // Only use slug if it's meaningful and not "Untitled"
+    let epaperIdentifier;
+    if (epaper.slug && epaper.slug.trim() !== '' && epaper.slug.toLowerCase() !== 'untitled') {
+      epaperIdentifier = epaper.slug;
+    } else {
+      // Use ID for cleaner, more trustworthy URL
+      epaperIdentifier = epaper.id !== undefined ? String(epaper.id) : (epaper._id ? String(epaper._id) : id);
+    }
+    const epaperUrl = `${baseUrl}/epaper/${epaperIdentifier}`;
     const siteName = 'नव मंच - Nav Manch';
     
     // Escape HTML entities properly
