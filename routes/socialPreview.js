@@ -39,7 +39,7 @@ const getAbsoluteImageUrl = (imgUrl, baseUrl) => {
     absoluteImage = absoluteImage.replace('http://', 'https://');
   }
   
-  // Optimize Cloudinary URLs for preview cards (1200x630 is optimal)
+  // Optimize Cloudinary URLs for preview cards
   if (absoluteImage.includes('cloudinary.com') && absoluteImage.includes('/image/upload/')) {
     // Check if transformations already exist
     const uploadMatch = absoluteImage.match(/(https?:\/\/res\.cloudinary\.com\/[^\/]+\/image\/upload\/)(.*)/);
@@ -49,7 +49,8 @@ const getAbsoluteImageUrl = (imgUrl, baseUrl) => {
       
       // If no transformations or simple ones, add optimal preview size
       if (!rest.includes('w_') || !rest.includes('h_')) {
-        // Add transformation for optimal preview size
+        // Default: 1200x630 for articles (landscape)
+        // For e-papers, we'll use vertical format in the e-paper route
         absoluteImage = `${base}w_1200,h_630,c_fill,q_auto,f_auto/${rest}`;
       } else {
         // Ensure HTTPS
@@ -61,12 +62,69 @@ const getAbsoluteImageUrl = (imgUrl, baseUrl) => {
   return absoluteImage;
 };
 
+// Helper to optimize e-paper images for vertical share cards
+const getEpaperImageUrl = (imgUrl, baseUrl) => {
+  if (!imgUrl || imgUrl.trim() === '') {
+    // Use production URL for logo, not localhost
+    const productionUrl = 'https://navmanchnews.com';
+    return `${productionUrl}/logo1.png`;
+  }
+  
+  let absoluteImage = imgUrl.trim();
+  
+  // If it's already a Cloudinary URL (most common case), use it directly
+  if (absoluteImage.includes('cloudinary.com')) {
+    // Optimize Cloudinary URLs for vertical e-paper pages (portrait orientation)
+    if (absoluteImage.includes('/image/upload/')) {
+      const uploadMatch = absoluteImage.match(/(https?:\/\/res\.cloudinary\.com\/[^\/]+\/image\/upload\/)(.*)/);
+      if (uploadMatch) {
+        const base = uploadMatch[1];
+        const rest = uploadMatch[2];
+        
+        // If no transformations or simple ones, add optimal vertical size for e-paper
+        if (!rest.includes('w_') || !rest.includes('h_')) {
+        // Big vertical format: 1200x1600 for large, prominent share cards
+        // This makes the newspaper page big and clearly visible
+        absoluteImage = `${base}w_1200,h_1600,c_fit,q_auto,f_auto/${rest}`;
+        }
+      }
+    }
+    
+    // Force HTTPS (required by WhatsApp/Facebook)
+    if (absoluteImage.startsWith('http://')) {
+      absoluteImage = absoluteImage.replace('http://', 'https://');
+    }
+    
+    return absoluteImage;
+  }
+  
+  // If relative URL, make it absolute using production URL (not localhost)
+  if (!absoluteImage.startsWith('http://') && !absoluteImage.startsWith('https://')) {
+    // Use production URL instead of baseUrl (which might be localhost)
+    const productionUrl = baseUrl.includes('localhost') ? 'https://navmanchnews.com' : baseUrl;
+    absoluteImage = `${productionUrl}${absoluteImage.startsWith('/') ? '' : '/'}${absoluteImage}`;
+  }
+  
+  // Force HTTPS (required by WhatsApp/Facebook)
+  if (absoluteImage.startsWith('http://')) {
+    absoluteImage = absoluteImage.replace('http://', 'https://');
+  }
+  
+  // Don't use localhost URLs for share cards - crawlers can't access them
+  if (absoluteImage.includes('localhost') || absoluteImage.includes('127.0.0.1')) {
+    // Fallback to production logo
+    return 'https://navmanchnews.com/logo1.png';
+  }
+  
+  return absoluteImage;
+};
+
 // Serve HTML with meta tags for news articles
 router.get('/news/:id', async (req, res) => {
   try {
     const userAgent = req.headers['user-agent'] || '';
     const { id } = req.params;
-    const baseUrl = process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanch.com';
+    const baseUrl = process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanchnews.com';
     
     // Only serve HTML to crawlers, redirect others to React app
     if (!isCrawler(userAgent)) {
@@ -223,7 +281,7 @@ router.get('/epaper/:id/page/:pageNo/section/:sectionId', async (req, res) => {
   try {
     const userAgent = req.headers['user-agent'] || '';
     const { id, pageNo, sectionId } = req.params;
-    const baseUrl = process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanch.com';
+    const baseUrl = process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanchnews.com';
     
     // Only serve HTML to crawlers, redirect others to React app
     if (!isCrawler(userAgent)) {
@@ -436,7 +494,7 @@ router.get('/epaper/:id', async (req, res) => {
   try {
     const userAgent = req.headers['user-agent'] || '';
     const { id } = req.params;
-    const baseUrl = process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanch.com';
+    const baseUrl = process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanchnews.com';
     
     // Only serve HTML to crawlers, redirect others to React app
     if (!isCrawler(userAgent)) {
@@ -463,9 +521,9 @@ router.get('/epaper/:id', async (req, res) => {
       `);
     }
     
-    // Get image (use first page image or thumbnail)
+    // Get image (use first page image or thumbnail) - optimized for vertical share cards
     const imageUrl = epaper.pages?.[0]?.image || epaper.thumbnail || `${baseUrl}/logo1.png`;
-    const absoluteImage = getAbsoluteImageUrl(imageUrl, baseUrl);
+    const absoluteImage = getEpaperImageUrl(imageUrl, baseUrl);
     
     // Log for debugging
     console.log('E-paper preview image:', {
@@ -478,11 +536,12 @@ router.get('/epaper/:id', async (req, res) => {
       userAgent: userAgent.substring(0, 50)
     });
     
-    // Get title and description
-    const epaperTitle = epaper.title || 'ई-पेपर';
-    const dateStr = epaper.date ? new Date(epaper.date).toLocaleDateString('mr-IN') : '';
-    const title = `${epaperTitle} - नव मंच`;
-    const description = `${epaperTitle} - ${dateStr}`;
+    // Get title - only e-paper name (no date, no page number)
+    const epaperTitle = epaper.title || 'नव मंच';
+    // Just the e-paper name for title
+    const title = epaperTitle;
+    // Description with site name for better branding
+    const description = `${epaperTitle} | navmanchnews.com`;
     
     // Use ID for cleaner URL (avoid encoded characters for better trust)
     // Only use slug if it's meaningful and not "Untitled"
@@ -530,7 +589,7 @@ router.get('/epaper/:id', async (req, res) => {
   <meta property="og:image" content="${absoluteImage}">
   <meta property="og:image:secure_url" content="${absoluteImage}">
   <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
+  <meta property="og:image:height" content="1600">
   <meta property="og:image:type" content="image/jpeg">
   <meta property="og:site_name" content="${siteName}">
   <meta property="og:locale" content="mr_IN">
