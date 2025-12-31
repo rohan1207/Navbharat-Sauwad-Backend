@@ -37,8 +37,8 @@ const PORT = process.env.PORT || 5001;
 const allowedOrigins = [
   'http://localhost:5174', // Frontend
   'http://localhost:5175', // Admin Panel
-  'https://navbharat-sauwad-frontend.onrender.com',
-  'https://navbharat-sauwad-admin.onrender.com',
+  'https://navmanch.onrender.com',
+  '',
   process.env.FRONTEND_URL,
   process.env.ADMIN_PANEL_URL
 ].filter(Boolean); // Remove undefined values
