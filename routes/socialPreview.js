@@ -537,11 +537,22 @@ router.get('/epaper/:id', async (req, res) => {
     });
     
     // Get title - only e-paper name (no date, no page number)
-    const epaperTitle = epaper.title || 'नव मंच';
+    let epaperTitle = epaper.title || 'नव मंच';
+    
+    // Clean title - remove any date patterns that might be in the title
+    // Remove patterns like " - 31 Dec 2025", " - 31/12/2025", " - पृष्ठ 1", etc.
+    epaperTitle = epaperTitle
+      .replace(/\s*-\s*\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}/gi, '') // Remove " - 31 Dec 2025"
+      .replace(/\s*-\s*\d{1,2}\/\d{1,2}\/\d{4}/g, '') // Remove " - 31/12/2025"
+      .replace(/\s*-\s*\d{4}-\d{2}-\d{2}/g, '') // Remove " - 2025-12-31"
+      .replace(/\s*-\s*पृष्ठ\s*\d+/gi, '') // Remove " - पृष्ठ 1"
+      .replace(/\s*-\s*Page\s*\d+/gi, '') // Remove " - Page 1"
+      .trim();
+    
     // Just the e-paper name for title
-    const title = epaperTitle;
+    const title = epaperTitle || 'नव मंच';
     // Description with site name for better branding
-    const description = `${epaperTitle} | navmanchnews.com`;
+    const description = `${title} | navmanchnews.com`;
     
     // Use ID for cleaner URL (avoid encoded characters for better trust)
     // Only use slug if it's meaningful and not "Untitled"
