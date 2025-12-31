@@ -21,7 +21,7 @@ if (process.env.MONGODB_URI) {
   console.log('Testing MongoDB connection...');
   import('mongoose').then(({ default: mongoose }) => {
     mongoose.connect(process.env.MONGODB_URI, {
-      serverSelectionTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 5001,
     })
     .then(() => {
       console.log('✅ MongoDB connection test: SUCCESS');
@@ -38,6 +38,8 @@ if (process.env.MONGODB_URI) {
   console.error('❌ MONGODB_URI not set');
   process.exit(1);
 }
+
+
 
 
 

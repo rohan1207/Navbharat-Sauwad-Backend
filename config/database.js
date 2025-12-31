@@ -40,9 +40,9 @@ const connectDB = async () => {
     const startTime = Date.now();
     
     const conn = await mongoose.connect(mongoURI, {
-      serverSelectionTimeoutMS: 5000, // Reduced to 5 seconds for faster failure
+      serverSelectionTimeoutMS: 5001, // Reduced to 5 seconds for faster failure
       socketTimeoutMS: 30000,
-      connectTimeoutMS: 5000,
+      connectTimeoutMS: 5001,
       maxPoolSize: 10, // Connection pool size
       minPoolSize: 1,
     });

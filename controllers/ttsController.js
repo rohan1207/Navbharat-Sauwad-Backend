@@ -1,10 +1,36 @@
 // Proxy endpoint for Google Translate TTS to bypass CORS
 export const getTTS = async (req, res) => {
   try {
-    const { text, lang = 'mr' } = req.query;
+    let { text, lang = 'mr' } = req.query;
 
     if (!text) {
       return res.status(400).json({ error: 'Text parameter is required' });
+    }
+
+    // Decode the text (it might be double-encoded)
+    try {
+      text = decodeURIComponent(text);
+    } catch (e) {
+      // If already decoded, continue
+      console.log('Text already decoded or decode failed, using as-is');
+    }
+
+    // Validate and clean text
+    if (typeof text !== 'string') {
+      return res.status(400).json({ error: 'Text must be a string' });
+    }
+
+    // Remove any null bytes or problematic characters
+    text = text.replace(/\0/g, '').trim();
+
+    // Check text length (Google TTS has a limit of ~200 characters per request)
+    if (text.length > 200) {
+      console.warn(`Text length (${text.length}) exceeds recommended limit, truncating to 200 chars`);
+      text = text.substring(0, 200);
+    }
+
+    if (text.length === 0) {
+      return res.status(400).json({ error: 'Text is empty after processing' });
     }
 
     // Validate language code
@@ -12,6 +38,7 @@ export const getTTS = async (req, res) => {
     const ttsLang = validLangs.includes(lang) ? lang.split('-')[0] : 'mr';
 
     // Google Translate TTS endpoint - use 'gtx' client which is more reliable
+    // Ensure proper encoding for Marathi/Unicode characters
     const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${ttsLang}&client=gtx&q=${encodeURIComponent(text)}`;
 
     // Fetch the audio from Google using fetch (built-in, no dependencies)
@@ -24,6 +51,22 @@ export const getTTS = async (req, res) => {
     });
 
     if (!response.ok) {
+      // Log more details for 400 errors
+      if (response.status === 400) {
+        console.error('Google TTS 400 Error Details:');
+        console.error('  Text length:', text.length);
+        console.error('  Text preview:', text.substring(0, 100));
+        console.error('  Language:', ttsLang);
+        console.error('  URL length:', ttsUrl.length);
+        
+        // Try to get error response body
+        try {
+          const errorText = await response.text();
+          console.error('  Error response:', errorText.substring(0, 200));
+        } catch (e) {
+          console.error('  Could not read error response');
+        }
+      }
       throw new Error(`Google TTS returned status ${response.status}`);
     }
 

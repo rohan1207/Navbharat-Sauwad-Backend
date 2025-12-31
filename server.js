@@ -89,6 +89,11 @@ app.use('/api/sports', sportsRoutes); // Sports Monk API routes
 app.use('/api/meta', metaRoutes); // Meta tags route
 app.use('/api/subscribers', subscriberRoutes); // Subscribers route
 
+// Ping/Pong endpoint - Keep server alive on Render
+app.get('/ping', (req, res) => {
+  res.json({ message: 'pong', timestamp: new Date().toISOString() });
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
