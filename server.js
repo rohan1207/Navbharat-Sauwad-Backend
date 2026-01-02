@@ -16,6 +16,7 @@ import sportsRoutes from './routes/sports.js';
 import metaRoutes from './routes/meta.js';
 import socialPreviewRoutes from './routes/socialPreview.js';
 import subscriberRoutes from './routes/subscribers.js';
+import sitemapRoutes from './routes/sitemap.js';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -38,7 +39,9 @@ const allowedOrigins = [
   'http://localhost:5174', // Frontend
   'http://localhost:5175', // Admin Panel
   'https://navmanch.onrender.com',
-  '',
+  'https://navmanch-admin.onrender.com',
+  'https://navmanchnews.com',
+  'https://admin.navmanchnews.com',
   process.env.FRONTEND_URL,
   process.env.ADMIN_PANEL_URL
 ].filter(Boolean); // Remove undefined values
@@ -70,6 +73,9 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Sitemap route (MUST be before other routes)
+app.use('/', sitemapRoutes);
 
 // Social media preview routes (MUST be before API routes to catch crawler requests)
 // These routes serve HTML with meta tags for WhatsApp, Facebook, Twitter crawlers
