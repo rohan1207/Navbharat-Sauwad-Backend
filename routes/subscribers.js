@@ -2,13 +2,15 @@ import express from 'express';
 import {
   createSubscriber,
   getSubscribers,
+  checkSubscriber,
   unsubscribe
 } from '../controllers/subscriberController.js';
 
 const router = express.Router();
 
-// Public route - create subscriber
+// Public routes
 router.post('/', createSubscriber);
+router.post('/check', checkSubscriber);
 
 // Admin routes (can be protected later with auth middleware)
 router.get('/', getSubscribers);

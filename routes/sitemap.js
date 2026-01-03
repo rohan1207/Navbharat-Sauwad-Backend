@@ -4,89 +4,169 @@ import Epaper from '../models/Epaper.js';
 
 const router = express.Router();
 
+// Base URL for the site
+const BASE_URL = process.env.FRONTEND_URL || 'https://navmanchnews.com';
+
+// Generate sitemap XML
 router.get('/sitemap.xml', async (req, res) => {
   try {
-    const baseUrl = 'https://navmanchnews.com';
-    const currentDate = new Date().toISOString().split('T')[0];
+    const urls = [];
 
     // Static pages
-    const staticPages = [
-      { url: '/', priority: '1.0', changefreq: 'daily' },
-      { url: '/epaper', priority: '0.9', changefreq: 'daily' },
-      { url: '/epaper2', priority: '0.9', changefreq: 'daily' },
-      { url: '/gallery', priority: '0.8', changefreq: 'weekly' },
-      { url: '/blogs', priority: '0.8', changefreq: 'daily' },
-      { url: '/articles', priority: '0.8', changefreq: 'daily' },
-      { url: '/shorts', priority: '0.7', changefreq: 'daily' },
-      { url: '/events', priority: '0.7', changefreq: 'weekly' },
-    ];
-
-    // Fetch published articles (last 1000)
-    const articles = await Article.find({ status: 'published' })
-      .select('_id slug updatedAt createdAt publishedAt')
-      .sort({ publishedAt: -1, createdAt: -1 })
-      .limit(1000)
-      .lean();
-
-    // Fetch published e-papers (last 100)
-    const epapers = await Epaper.find({ status: 'published' })
-      .select('id _id slug date updatedAt')
-      .sort({ date: -1 })
-      .limit(100)
-      .lean();
-
-    // Build XML
-    let xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`;
-
-    // Add static pages
-    staticPages.forEach(page => {
-      xml += `
-  <url>
-    <loc>${baseUrl}${page.url}</loc>
-    <lastmod>${currentDate}</lastmod>
-    <changefreq>${page.changefreq}</changefreq>
-    <priority>${page.priority}</priority>
-  </url>`;
+    urls.push({
+      loc: `${BASE_URL}/`,
+      lastmod: new Date().toISOString().split('T')[0],
+      changefreq: 'daily',
+      priority: '1.0'
     });
 
-    // Add article pages
-    articles.forEach(article => {
-      const articleId = article._id.toString();
-      const lastmod = (article.updatedAt || article.publishedAt || article.createdAt || new Date()).toISOString().split('T')[0];
-      xml += `
-  <url>
-    <loc>${baseUrl}/news/${articleId}</loc>
-    <lastmod>${lastmod}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>`;
+    urls.push({
+      loc: `${BASE_URL}/epaper`,
+      lastmod: new Date().toISOString().split('T')[0],
+      changefreq: 'daily',
+      priority: '0.9'
     });
 
-    // Add e-paper pages
-    epapers.forEach(epaper => {
-      const epaperId = epaper.id || epaper._id.toString();
-      const lastmod = (epaper.date || epaper.updatedAt || new Date()).toISOString().split('T')[0];
-      xml += `
-  <url>
-    <loc>${baseUrl}/epaper/${epaperId}</loc>
-    <lastmod>${lastmod}</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-  </url>`;
+    urls.push({
+      loc: `${BASE_URL}/epaper2`,
+      lastmod: new Date().toISOString().split('T')[0],
+      changefreq: 'daily',
+      priority: '0.9'
     });
 
-    xml += `
+    urls.push({
+      loc: `${BASE_URL}/gallery`,
+      lastmod: new Date().toISOString().split('T')[0],
+      changefreq: 'weekly',
+      priority: '0.8'
+    });
+
+    urls.push({
+      loc: `${BASE_URL}/blogs`,
+      lastmod: new Date().toISOString().split('T')[0],
+      changefreq: 'daily',
+      priority: '0.8'
+    });
+
+    urls.push({
+      loc: `${BASE_URL}/articles`,
+      lastmod: new Date().toISOString().split('T')[0],
+      changefreq: 'daily',
+      priority: '0.8'
+    });
+
+    urls.push({
+      loc: `${BASE_URL}/shorts`,
+      lastmod: new Date().toISOString().split('T')[0],
+      changefreq: 'daily',
+      priority: '0.7'
+    });
+
+    urls.push({
+      loc: `${BASE_URL}/events`,
+      lastmod: new Date().toISOString().split('T')[0],
+      changefreq: 'weekly',
+      priority: '0.7'
+    });
+
+    // Published articles
+    try {
+      const articles = await Article.find({ 
+        status: 'published',
+        slug: { $exists: true, $ne: null }
+      })
+        .select('slug updatedAt publishedAt')
+        .sort({ publishedAt: -1 })
+        .limit(5000); // Limit to prevent huge sitemaps
+
+      articles.forEach(article => {
+        if (article.slug) {
+          urls.push({
+            loc: `${BASE_URL}/news/${article.slug}`,
+            lastmod: (article.updatedAt || article.publishedAt || new Date()).toISOString().split('T')[0],
+            changefreq: 'weekly',
+            priority: '0.8'
+          });
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching articles for sitemap:', error);
+      // Continue even if articles fail
+    }
+
+    // Epapers
+    try {
+      const epapers = await Epaper.find()
+        .select('date updatedAt')
+        .sort({ date: -1 })
+        .limit(100); // Limit recent epapers
+
+      epapers.forEach(epaper => {
+        if (epaper.date) {
+          const dateStr = epaper.date.toISOString().split('T')[0];
+          urls.push({
+            loc: `${BASE_URL}/epaper/${dateStr}`,
+            lastmod: (epaper.updatedAt || epaper.date).toISOString().split('T')[0],
+            changefreq: 'daily',
+            priority: '0.7'
+          });
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching epapers for sitemap:', error);
+      // Continue even if epapers fail
+    }
+
+    // Generate XML
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map(url => `  <url>
+    <loc>${escapeXml(url.loc)}</loc>
+    <lastmod>${url.lastmod}</lastmod>
+    <changefreq>${url.changefreq}</changefreq>
+    <priority>${url.priority}</priority>
+  </url>`).join('\n')}
 </urlset>`;
 
-    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
     res.send(xml);
   } catch (error) {
     console.error('Error generating sitemap:', error);
-    res.status(500).send('Error generating sitemap');
+    // Return a basic fallback sitemap
+    const fallbackSitemap = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>${BASE_URL}/</loc>
+    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>${BASE_URL}/epaper</loc>
+    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+</urlset>`;
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.status(200).send(fallbackSitemap);
   }
 });
+
+// Helper function to escape XML special characters
+function escapeXml(unsafe) {
+  return unsafe.replace(/[<>&'"]/g, (c) => {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '\'': return '&apos;';
+      case '"': return '&quot;';
+      default: return c;
+    }
+  });
+}
 
 export default router;
 

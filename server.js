@@ -36,12 +36,15 @@ const PORT = process.env.PORT || 5001;
 
 // Middleware - CORS configuration
 const allowedOrigins = [
-  'http://localhost:5174', // Frontend
+  'http://localhost:5174', // Old Frontend (Vite)
   'http://localhost:5175', // Admin Panel
+  'http://localhost:3000', // Next.js Frontend
   'https://navmanch.onrender.com',
   'https://navmanch-admin.onrender.com',
   'https://navmanchnews.com',
   'https://admin.navmanchnews.com',
+  'http://127.0.0.1:5500/',
+  
   process.env.FRONTEND_URL,
   process.env.ADMIN_PANEL_URL
 ].filter(Boolean); // Remove undefined values

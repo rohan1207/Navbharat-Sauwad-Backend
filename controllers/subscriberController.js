@@ -130,6 +130,60 @@ export const getSubscribers = async (req, res) => {
   }
 };
 
+// Check if subscriber exists
+export const checkSubscriber = async (req, res) => {
+  try {
+    const { email, phone } = req.body;
+
+    if (!email && !phone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email or phone is required'
+      });
+    }
+
+    const query = {};
+    if (email) {
+      query.email = email.toLowerCase().trim();
+    }
+    if (phone) {
+      query.phone = phone.replace(/\s/g, '');
+    }
+
+    const subscriber = await Subscriber.findOne({
+      $or: [
+        ...(email ? [{ email: email.toLowerCase().trim() }] : []),
+        ...(phone ? [{ phone: phone.replace(/\s/g, '') }] : [])
+      ],
+      isActive: true
+    });
+
+    if (subscriber) {
+      return res.status(200).json({
+        success: true,
+        exists: true,
+        subscriber: {
+          name: subscriber.name,
+          email: subscriber.email,
+          phone: subscriber.phone
+        }
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      exists: false
+    });
+  } catch (error) {
+    console.error('Error checking subscriber:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error checking subscriber',
+      error: error.message
+    });
+  }
+};
+
 // Unsubscribe (soft delete)
 export const unsubscribe = async (req, res) => {
   try {
