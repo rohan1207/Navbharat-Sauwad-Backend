@@ -49,12 +49,32 @@ const getAbsoluteImageUrl = (imgUrl, baseUrl) => {
       
       // If no transformations or simple ones, add optimal preview size
       if (!rest.includes('w_') || !rest.includes('h_')) {
-        // Default: 1600x840 for articles (landscape) - larger for better share cards
-        // For e-papers, we'll use vertical format in the e-paper route
-        absoluteImage = `${base}w_1600,h_840,c_fill,q_auto,f_auto/${rest}`;
+        // Optimized for fast loading: 1200x630, JPEG format, quality 80
+        // Smaller size = faster loading for iOS/Android WhatsApp
+        absoluteImage = `${base}w_1200,h_630,c_fill,q_80,f_jpg/${rest}`;
       } else {
         // Ensure HTTPS
         absoluteImage = absoluteImage.replace('http://', 'https://');
+        // Force JPEG format for iOS/Android compatibility and faster loading
+        absoluteImage = absoluteImage.replace(/f_(auto|webp)/g, 'f_jpg');
+        // If no format specified, add f_jpg
+        if (!absoluteImage.includes('f_')) {
+          const parts = absoluteImage.split('/image/upload/');
+          if (parts.length === 2) {
+            absoluteImage = `${parts[0]}/image/upload/f_jpg/${parts[1]}`;
+          }
+        }
+      }
+    }
+  }
+  
+  // Force JPEG format for all Cloudinary images (iOS/Android compatibility)
+  if (absoluteImage.includes('cloudinary.com') && absoluteImage.includes('/image/upload/')) {
+    absoluteImage = absoluteImage.replace(/f_(auto|webp)/g, 'f_jpg');
+    if (!absoluteImage.includes('f_')) {
+      const parts = absoluteImage.split('/image/upload/');
+      if (parts.length === 2) {
+        absoluteImage = `${parts[0]}/image/upload/f_jpg/${parts[1]}`;
       }
     }
   }
@@ -83,9 +103,18 @@ const getEpaperImageUrl = (imgUrl, baseUrl) => {
         
         // If no transformations or simple ones, add optimal vertical size for e-paper
         if (!rest.includes('w_') || !rest.includes('h_')) {
-        // Big vertical format: 1600x2133 for large, prominent share cards
-        // This makes the newspaper page big and clearly visible
-        absoluteImage = `${base}w_1600,h_2133,c_fit,q_auto,f_auto/${rest}`;
+        // Optimized for fast loading: 1200x1600, JPEG format, quality 80
+        // Smaller size = faster loading for iOS/Android WhatsApp
+        absoluteImage = `${base}w_1200,h_1600,c_fit,q_80,f_jpg/${rest}`;
+        } else {
+          // Force JPEG format for existing transformations
+          absoluteImage = absoluteImage.replace(/f_(auto|webp)/g, 'f_jpg');
+          if (!absoluteImage.includes('f_')) {
+            const parts = absoluteImage.split('/image/upload/');
+            if (parts.length === 2) {
+              absoluteImage = `${parts[0]}/image/upload/f_jpg/${parts[1]}`;
+            }
+          }
         }
       }
     }
@@ -243,8 +272,8 @@ router.get('/news/:id', async (req, res) => {
   <meta property="og:description" content="${safeDescription}">
   <meta property="og:image" content="${absoluteImage}">
   <meta property="og:image:secure_url" content="${absoluteImage}">
-  <meta property="og:image:width" content="1600">
-  <meta property="og:image:height" content="840">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
   <meta property="og:image:type" content="image/jpeg">
   <meta property="og:site_name" content="${siteName}">
   <meta property="og:locale" content="mr_IN">
@@ -476,8 +505,8 @@ router.get('/epaper/:id/page/:pageNo/section/:sectionId', async (req, res) => {
   <meta property="og:description" content="${safeDescription}">
   <meta property="og:image" content="${absoluteImage}">
   <meta property="og:image:secure_url" content="${absoluteImage}">
-  <meta property="og:image:width" content="1600">
-  <meta property="og:image:height" content="840">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
   <meta property="og:image:type" content="image/jpeg">
   <meta property="og:site_name" content="${siteName}">
   <meta property="og:locale" content="mr_IN">
@@ -639,8 +668,8 @@ router.get('/epaper/:id', async (req, res) => {
   <meta property="og:description" content="${safeDescription}">
   <meta property="og:image" content="${absoluteImage}">
   <meta property="og:image:secure_url" content="${absoluteImage}">
-  <meta property="og:image:width" content="1600">
-  <meta property="og:image:height" content="2133">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="1600">
   <meta property="og:image:type" content="image/jpeg">
   <meta property="og:site_name" content="${siteName}">
   <meta property="og:locale" content="mr_IN">
