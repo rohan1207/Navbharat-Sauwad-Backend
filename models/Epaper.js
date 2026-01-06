@@ -48,6 +48,10 @@ const epaperSchema = new mongoose.Schema({
     default: 'published' 
   },
   pages: { type: [pageSchema], default: [] },
+  metaHtml: {
+    type: String,
+    default: '' // Pre-generated HTML for social media previews (instant serving)
+  },
   createdAt: { type: Date, default: () => new Date() },
   updatedAt: { type: Date, default: () => new Date() }
 }, { strict: false }); // Allow extra fields to be ignored

@@ -1,5 +1,8 @@
 import mongoose from 'mongoose';
 import Article from '../models/Article.js';
+import { generateArticleMetaHtml } from '../utils/metaHtmlGenerator.js';
+
+const BASE_URL = process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanchnews.com';
 
 // Get all articles with filters
 export const getArticles = async (req, res) => {
@@ -115,6 +118,14 @@ export const createArticle = async (req, res) => {
       .populate('subCategoryId', 'name nameEn')
       .populate('authorId', 'name designation');
     
+    // Generate metaHtml asynchronously (non-blocking, doesn't add latency)
+    generateArticleMetaHtml(populatedArticle.toObject(), BASE_URL)
+      .then(metaHtml => {
+        Article.findByIdAndUpdate(article._id, { metaHtml })
+          .catch(err => console.error('Error saving metaHtml (non-critical):', err.message));
+      })
+      .catch(err => console.error('Error generating metaHtml (non-critical):', err.message));
+    
     res.status(201).json(populatedArticle);
   } catch (error) {
     console.error('Error creating article:', error);
@@ -169,6 +180,14 @@ export const updateArticle = async (req, res) => {
       .populate('categoryId', 'name nameEn')
       .populate('subCategoryId', 'name nameEn')
       .populate('authorId', 'name designation');
+    
+    // Generate metaHtml asynchronously (non-blocking, doesn't add latency)
+    generateArticleMetaHtml(populatedArticle.toObject(), BASE_URL)
+      .then(metaHtml => {
+        Article.findByIdAndUpdate(article._id, { metaHtml })
+          .catch(err => console.error('Error saving metaHtml (non-critical):', err.message));
+      })
+      .catch(err => console.error('Error generating metaHtml (non-critical):', err.message));
     
     res.json(populatedArticle);
   } catch (error) {

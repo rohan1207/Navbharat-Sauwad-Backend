@@ -83,6 +83,10 @@ const articleSchema = new mongoose.Schema({
     unique: true,
     sparse: true, // Allow null/undefined, but enforce uniqueness when present
     trim: true
+  },
+  metaHtml: {
+    type: String,
+    default: '' // Pre-generated HTML for social media previews (instant serving)
   }
 }, {
   timestamps: true

@@ -8,6 +8,9 @@ import sharp from 'sharp';
 import Epaper from '../models/Epaper.js';
 import { uploadEpaperPage, deleteFolder } from '../services/cloudinaryService.js';
 import { convertPDFToImages, cleanupTemp } from '../services/pdfConverter.js';
+import { generateEpaperMetaHtml } from '../utils/metaHtmlGenerator.js';
+
+const BASE_URL = process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanchnews.com';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -219,6 +222,14 @@ router.post('/upload', upload.single('pdf'), async (req, res) => {
 
     console.log(`✅ E-paper created with ID: ${epaperId}`);
 
+    // Generate metaHtml asynchronously (non-blocking, doesn't add latency)
+    generateEpaperMetaHtml(epaper.toObject(), BASE_URL)
+      .then(metaHtml => {
+        Epaper.findByIdAndUpdate(epaper._id, { metaHtml })
+          .catch(err => console.error('Error saving metaHtml (non-critical):', err.message));
+      })
+      .catch(err => console.error('Error generating metaHtml (non-critical):', err.message));
+
     res.status(201).json(epaper);
   } catch (error) {
     console.error('Error uploading e-paper:', error);
@@ -360,6 +371,14 @@ router.post('/upload-page', uploadImage.single('image'), async (req, res) => {
     await epaper.save();
     const saveTime = ((Date.now() - saveStartTime) / 1000).toFixed(2);
     console.log(`[${requestId}] ✅ Database save completed in ${saveTime}s`);
+    
+    // Generate metaHtml asynchronously (non-blocking, doesn't add latency)
+    generateEpaperMetaHtml(epaper.toObject(), BASE_URL)
+      .then(metaHtml => {
+        Epaper.findByIdAndUpdate(epaper._id, { metaHtml })
+          .catch(err => console.error('Error saving metaHtml (non-critical):', err.message));
+      })
+      .catch(err => console.error('Error generating metaHtml (non-critical):', err.message));
 
     // Step 7: Clean up temp file
     console.log(`[${requestId}] 🧹 Step 7: Cleaning up temp file...`);
@@ -423,6 +442,15 @@ router.post('/', async (req, res) => {
       existing.updatedAt = Date.now();
       
       await existing.save();
+      
+      // Generate metaHtml asynchronously (non-blocking)
+      generateEpaperMetaHtml(existing.toObject(), BASE_URL, getEpaperImageUrl)
+        .then(metaHtml => {
+          Epaper.findByIdAndUpdate(existing._id, { metaHtml })
+            .catch(err => console.error('Error saving metaHtml (non-critical):', err.message));
+        })
+        .catch(err => console.error('Error generating metaHtml (non-critical):', err.message));
+      
       return res.json(existing);
     }
 
@@ -435,6 +463,14 @@ router.post('/', async (req, res) => {
     });
 
     await epaper.save();
+
+    // Generate metaHtml asynchronously (non-blocking, doesn't add latency)
+    generateEpaperMetaHtml(epaper.toObject(), BASE_URL)
+      .then(metaHtml => {
+        Epaper.findByIdAndUpdate(epaper._id, { metaHtml })
+          .catch(err => console.error('Error saving metaHtml (non-critical):', err.message));
+      })
+      .catch(err => console.error('Error generating metaHtml (non-critical):', err.message));
 
     res.status(201).json(epaper);
   } catch (error) {
@@ -671,6 +707,15 @@ router.put('/:id', async (req, res) => {
     try {
       await epaper.save();
       console.log(`✅ E-paper ${epaperId} updated successfully`);
+      
+      // Generate metaHtml asynchronously (non-blocking, doesn't add latency)
+      generateEpaperMetaHtml(epaper.toObject(), BASE_URL, getEpaperImageUrl)
+        .then(metaHtml => {
+          Epaper.findByIdAndUpdate(epaper._id, { metaHtml })
+            .catch(err => console.error('Error saving metaHtml (non-critical):', err.message));
+        })
+        .catch(err => console.error('Error generating metaHtml (non-critical):', err.message));
+      
       res.json(epaper);
     } catch (saveError) {
       // Handle validation errors specifically

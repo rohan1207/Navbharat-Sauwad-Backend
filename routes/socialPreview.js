@@ -2,8 +2,39 @@ import express from 'express';
 import mongoose from 'mongoose';
 import Article from '../models/Article.js';
 import Epaper from '../models/Epaper.js';
+import { 
+  generateArticleMetaHtml, 
+  generateEpaperSectionMetaHtml, 
+  generateEpaperMetaHtml,
+  getAbsoluteImageUrl,
+  getEpaperImageUrl,
+  getCroppedImageUrl
+} from '../utils/metaHtmlGenerator.js';
 
 const router = express.Router();
+
+// In-memory cache for instant meta tag responses (critical for iOS)
+// Cache key: route + id, value: { html, timestamp }
+const metaCache = new Map();
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const MAX_CACHE_SIZE = 1000; // Limit cache size
+
+// Clean old cache entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of metaCache.entries()) {
+    if (now - value.timestamp > CACHE_TTL) {
+      metaCache.delete(key);
+    }
+  }
+  // If cache is too large, remove oldest entries
+  if (metaCache.size > MAX_CACHE_SIZE) {
+    const entries = Array.from(metaCache.entries())
+      .sort((a, b) => a[1].timestamp - b[1].timestamp);
+    const toRemove = entries.slice(0, metaCache.size - MAX_CACHE_SIZE);
+    toRemove.forEach(([key]) => metaCache.delete(key));
+  }
+}, 60 * 60 * 1000); // Clean every hour
 
 // Helper to detect if request is from a crawler/bot
 const isCrawler = (userAgent) => {
@@ -21,132 +52,8 @@ const getPlainText = (html) => {
     .trim();
 };
 
-// Helper to ensure absolute image URL with HTTPS and proper formatting
-const getAbsoluteImageUrl = (imgUrl, baseUrl) => {
-  if (!imgUrl || imgUrl.trim() === '') {
-    return `${baseUrl}/logo1.png`;
-  }
-  
-  let absoluteImage = imgUrl.trim();
-  
-  // If relative URL, make it absolute
-  if (!absoluteImage.startsWith('http://') && !absoluteImage.startsWith('https://')) {
-    absoluteImage = `${baseUrl}${absoluteImage.startsWith('/') ? '' : '/'}${absoluteImage}`;
-  }
-  
-  // Force HTTPS (required by WhatsApp/Facebook)
-  if (absoluteImage.startsWith('http://')) {
-    absoluteImage = absoluteImage.replace('http://', 'https://');
-  }
-  
-  // Optimize Cloudinary URLs for preview cards
-  if (absoluteImage.includes('cloudinary.com') && absoluteImage.includes('/image/upload/')) {
-    // Check if transformations already exist
-    const uploadMatch = absoluteImage.match(/(https?:\/\/res\.cloudinary\.com\/[^\/]+\/image\/upload\/)(.*)/);
-    if (uploadMatch) {
-      const base = uploadMatch[1];
-      const rest = uploadMatch[2];
-      
-      // If no transformations or simple ones, add optimal preview size
-      if (!rest.includes('w_') || !rest.includes('h_')) {
-        // Optimized for fast loading: 1200x630, JPEG format, quality 80
-        // Smaller size = faster loading for iOS/Android WhatsApp
-        absoluteImage = `${base}w_1200,h_630,c_fill,q_80,f_jpg/${rest}`;
-      } else {
-        // Ensure HTTPS
-        absoluteImage = absoluteImage.replace('http://', 'https://');
-        // Force JPEG format for iOS/Android compatibility and faster loading
-        absoluteImage = absoluteImage.replace(/f_(auto|webp)/g, 'f_jpg');
-        // If no format specified, add f_jpg
-        if (!absoluteImage.includes('f_')) {
-          const parts = absoluteImage.split('/image/upload/');
-          if (parts.length === 2) {
-            absoluteImage = `${parts[0]}/image/upload/f_jpg/${parts[1]}`;
-          }
-        }
-      }
-    }
-  }
-  
-  // Force JPEG format for all Cloudinary images (iOS/Android compatibility)
-  if (absoluteImage.includes('cloudinary.com') && absoluteImage.includes('/image/upload/')) {
-    absoluteImage = absoluteImage.replace(/f_(auto|webp)/g, 'f_jpg');
-    if (!absoluteImage.includes('f_')) {
-      const parts = absoluteImage.split('/image/upload/');
-      if (parts.length === 2) {
-        absoluteImage = `${parts[0]}/image/upload/f_jpg/${parts[1]}`;
-      }
-    }
-  }
-  
-  return absoluteImage;
-};
-
-// Helper to optimize e-paper images for vertical share cards
-const getEpaperImageUrl = (imgUrl, baseUrl) => {
-  if (!imgUrl || imgUrl.trim() === '') {
-    // Use the provided baseUrl (which comes from the request), or fallback
-    const logoBaseUrl = baseUrl || process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanchnews.com';
-    return `${logoBaseUrl}/logo1.png`;
-  }
-  
-  let absoluteImage = imgUrl.trim();
-  
-  // If it's already a Cloudinary URL (most common case), use it directly
-  if (absoluteImage.includes('cloudinary.com')) {
-    // Optimize Cloudinary URLs for vertical e-paper pages (portrait orientation)
-    if (absoluteImage.includes('/image/upload/')) {
-      const uploadMatch = absoluteImage.match(/(https?:\/\/res\.cloudinary\.com\/[^\/]+\/image\/upload\/)(.*)/);
-      if (uploadMatch) {
-        const base = uploadMatch[1];
-        const rest = uploadMatch[2];
-        
-        // If no transformations or simple ones, add optimal vertical size for e-paper
-        if (!rest.includes('w_') || !rest.includes('h_')) {
-        // Optimized for fast loading: 1200x1600, JPEG format, quality 80
-        // Smaller size = faster loading for iOS/Android WhatsApp
-        absoluteImage = `${base}w_1200,h_1600,c_fit,q_80,f_jpg/${rest}`;
-        } else {
-          // Force JPEG format for existing transformations
-          absoluteImage = absoluteImage.replace(/f_(auto|webp)/g, 'f_jpg');
-          if (!absoluteImage.includes('f_')) {
-            const parts = absoluteImage.split('/image/upload/');
-            if (parts.length === 2) {
-              absoluteImage = `${parts[0]}/image/upload/f_jpg/${parts[1]}`;
-            }
-          }
-        }
-      }
-    }
-    
-    // Force HTTPS (required by WhatsApp/Facebook)
-    if (absoluteImage.startsWith('http://')) {
-      absoluteImage = absoluteImage.replace('http://', 'https://');
-    }
-    
-    return absoluteImage;
-  }
-  
-  // If relative URL, make it absolute using baseUrl
-  if (!absoluteImage.startsWith('http://') && !absoluteImage.startsWith('https://')) {
-    const effectiveBaseUrl = baseUrl || process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanchnews.com';
-    absoluteImage = `${effectiveBaseUrl}${absoluteImage.startsWith('/') ? '' : '/'}${absoluteImage}`;
-  }
-  
-  // Force HTTPS (required by WhatsApp/Facebook)
-  if (absoluteImage.startsWith('http://')) {
-    absoluteImage = absoluteImage.replace('http://', 'https://');
-  }
-  
-  // Don't use localhost URLs for share cards - crawlers can't access them
-  if (absoluteImage.includes('localhost') || absoluteImage.includes('127.0.0.1')) {
-    // Fallback to logo using baseUrl or production URL
-    const logoBaseUrl = baseUrl || process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanchnews.com';
-    return `${logoBaseUrl}/logo1.png`;
-  }
-  
-  return absoluteImage;
-};
+// Re-export for backward compatibility (functions moved to metaHtmlGenerator)
+export { getAbsoluteImageUrl, getEpaperImageUrl, getCroppedImageUrl } from '../utils/metaHtmlGenerator.js';
 
 // Serve HTML with meta tags for news articles
 router.get('/news/:id', async (req, res) => {
@@ -165,16 +72,28 @@ router.get('/news/:id', async (req, res) => {
       return res.redirect(`${baseUrl}/news/${id}`);
     }
     
-    // Fetch article by slug or ID - include all image fields
+    // Check cache first (instant response for iOS)
+    const cacheKey = `news:${id}:${baseUrl}`;
+    const cached = metaCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+      console.log(`⚡ [CACHE HIT] Instant meta tags for news/${id}`);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
+      return res.send(cached.html);
+    }
+    
+    // Fetch article - include metaHtml field for instant serving
     let article;
     if (mongoose.Types.ObjectId.isValid(id)) {
       article = await Article.findById(id)
         .populate('categoryId', 'name')
-        .select('title summary content featuredImage imageGallery createdAt publishedAt slug');
+        .select('title summary content featuredImage imageGallery createdAt publishedAt slug metaHtml _id')
+        .lean(); // Use lean() for 2-3x faster queries
     } else {
       article = await Article.findOne({ slug: id })
         .populate('categoryId', 'name')
-        .select('title summary content featuredImage imageGallery createdAt publishedAt slug');
+        .select('title summary content featuredImage imageGallery createdAt publishedAt slug metaHtml _id')
+        .lean(); // Use lean() for 2-3x faster queries
     }
     
     if (!article) {
@@ -187,126 +106,27 @@ router.get('/news/:id', async (req, res) => {
       `);
     }
     
-    // Get description
-    const description = article.summary || 
-      (article.content ? getPlainText(article.content).substring(0, 200) : '') ||
-      article.title || '';
-    
-    // Get image - prioritize featuredImage, then imageGallery, then default
-    let imageUrl = '';
-    
-    if (article.featuredImage && article.featuredImage.trim() !== '') {
-      imageUrl = article.featuredImage.trim();
-    } else if (article.imageGallery && article.imageGallery.length > 0) {
-      const firstImage = article.imageGallery.find(img => img && img.trim() !== '');
-      if (firstImage) {
-        imageUrl = firstImage.trim();
-      }
+    // INSTANT: If pre-generated metaHtml exists, serve it immediately (zero latency)
+    if (article.metaHtml && article.metaHtml.trim() !== '') {
+      console.log(`⚡ [INSTANT] Serving pre-generated metaHtml for news/${id}`);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
+      return res.send(article.metaHtml); // INSTANT - just reading a string!
     }
     
-    // If still no image, use default logo
-    if (!imageUrl || imageUrl === '') {
-      imageUrl = `${baseUrl}/logo1.png`;
-    }
+    // Lazy generation: Generate on-the-fly for existing articles (non-blocking)
+    console.log(`🔄 [LAZY GEN] Generating metaHtml on-the-fly for news/${id}`);
+    const html = generateArticleMetaHtml(article, baseUrl);
     
-    // Get properly formatted absolute image URL
-    const absoluteImage = getAbsoluteImageUrl(imageUrl, baseUrl);
+    // Save it for next time (async, non-blocking - don't wait)
+    Article.findByIdAndUpdate(article._id || id, { metaHtml: html })
+      .catch(err => console.error('Error saving metaHtml (non-critical):', err.message));
     
-    // Log for debugging
-    console.log('📰 [SOCIAL PREVIEW] Article preview image:', {
-      articleId: id,
-      articleTitle: article.title?.substring(0, 50),
-      featuredImage: article.featuredImage ? article.featuredImage.substring(0, 80) : 'NONE',
-      imageGalleryCount: article.imageGallery?.length || 0,
-      selectedImageUrl: imageUrl ? imageUrl.substring(0, 80) : 'NONE',
-      finalAbsoluteImage: absoluteImage.substring(0, 100),
-      hasCloudinary: absoluteImage.includes('cloudinary.com'),
-      isLogoFallback: absoluteImage.includes('logo1.png'),
-      isValid: absoluteImage.startsWith('https://'),
-      userAgent: userAgent.substring(0, 50)
-    });
-    
-    // Warn if using logo fallback
-    if (absoluteImage.includes('logo1.png')) {
-      console.warn('⚠️  [SOCIAL PREVIEW] Using logo fallback - article has no image!', {
-        articleId: id,
-        title: article.title
-      });
-    }
-    
-    // Always use article ID in URL (not slug) for cleaner, more trustworthy URLs
-    const articleId = article._id ? String(article._id) : id;
-    const articleUrl = `${baseUrl}/news/${articleId}`;
-    const siteName = 'नव मंच - Nav Manch';
-    
-    // Escape HTML entities properly
-    const escapeHtml = (str) => {
-      if (!str) return '';
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    };
-    
-    const safeTitle = escapeHtml(article.title);
-    const safeDescription = escapeHtml(description);
-    
-    // Generate HTML with meta tags
-    const html = `<!DOCTYPE html>
-<html lang="mr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  
-  <!-- Primary Meta Tags -->
-  <title>${safeTitle} | ${siteName}</title>
-  <meta name="title" content="${safeTitle}">
-  <meta name="description" content="${safeDescription}">
-  
-  <!-- Open Graph / Facebook -->
-  <meta property="og:type" content="article">
-  <meta property="og:url" content="${articleUrl}">
-  <meta property="og:title" content="${safeTitle}">
-  <meta property="og:description" content="${safeDescription}">
-  <meta property="og:image" content="${absoluteImage}">
-  <meta property="og:image:secure_url" content="${absoluteImage}">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
-  <meta property="og:image:type" content="image/jpeg">
-  <meta property="og:site_name" content="${siteName}">
-  <meta property="og:locale" content="mr_IN">
-  
-  <!-- Twitter -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:url" content="${articleUrl}">
-  <meta name="twitter:title" content="${safeTitle}">
-  <meta name="twitter:description" content="${safeDescription}">
-  <meta name="twitter:image" content="${absoluteImage}">
-  <meta name="twitter:image:src" content="${absoluteImage}">
-  
-  <!-- Canonical -->
-  <link rel="canonical" href="${articleUrl}">
-  
-  <!-- Redirect to actual React app (only for non-crawlers) -->
-  <script>
-    if (!navigator.userAgent.match(/facebookexternalhit|whatsapp|twitterbot|linkedinbot/i)) {
-      window.location.href = "${articleUrl}";
-    }
-  </script>
-</head>
-<body>
-  <div style="text-align: center; padding: 50px; font-family: Arial, sans-serif;">
-    <h1>${safeTitle}</h1>
-    <p>${safeDescription}</p>
-    <img src="${absoluteImage}" alt="${safeTitle}" style="max-width: 100%; height: auto; margin: 20px 0; border-radius: 8px;">
-    <p><a href="${articleUrl}">Read full article</a></p>
-  </div>
-</body>
-</html>`;
+    // Cache in memory for immediate future requests
+    metaCache.set(cacheKey, { html, timestamp: Date.now() });
     
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours browser/CDN cache
     res.send(html);
   } catch (error) {
     console.error('Error generating news preview:', error);
@@ -337,14 +157,24 @@ router.get('/epaper/:id/page/:pageNo/section/:sectionId', async (req, res) => {
       return res.redirect(`${baseUrl}/epaper/${id}/page/${pageNo}/section/${sectionId}`);
     }
     
-    // Fetch e-paper - supports slug or ID
+    // Check cache first (instant response for iOS)
+    const cacheKey = `epaper-section:${id}:${pageNo}:${sectionId}:${baseUrl}`;
+    const cached = metaCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+      console.log(`⚡ [CACHE HIT] Instant meta tags for epaper section ${id}/${pageNo}/${sectionId}`);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
+      return res.send(cached.html);
+    }
+    
+    // Fetch e-paper - include pages for section lookup
     let epaper;
     if (mongoose.Types.ObjectId.isValid(id)) {
-      epaper = await Epaper.findById(id).select('title date pages thumbnail slug');
+      epaper = await Epaper.findById(id).select('title date pages thumbnail slug').lean();
     } else if (!isNaN(id)) {
-      epaper = await Epaper.findOne({ id: parseInt(id) }).select('title date pages thumbnail slug');
+      epaper = await Epaper.findOne({ id: parseInt(id) }).select('title date pages thumbnail slug').lean();
     } else {
-      epaper = await Epaper.findOne({ slug: id }).select('title date pages thumbnail slug');
+      epaper = await Epaper.findOne({ slug: id }).select('title date pages thumbnail slug').lean();
     }
     
     if (!epaper) {
@@ -377,169 +207,16 @@ router.get('/epaper/:id/page/:pageNo/section/:sectionId', async (req, res) => {
       return (sSlug && sSlug === sectionId) || String(sId) === String(sectionId);
     });
     
-    // Generate cropped image URL if section exists
-    let imageUrl = page.image || epaper.thumbnail || '';
+    // For sections, we generate on-the-fly (lazy generation)
+    // Each section is unique, so storing in epaper.metaHtml wouldn't work
+    console.log(`🔄 [LAZY GEN] Generating metaHtml on-the-fly for epaper section ${id}/${pageNo}/${sectionId}`);
+    const html = generateEpaperSectionMetaHtml(epaper, page, section, baseUrl);
     
-    // If no page image, use default logo
-    if (!imageUrl || imageUrl.trim() === '') {
-      imageUrl = `${baseUrl}/logo1.png`;
-    }
-    
-    // For section share cards, use the full page image instead of cropped section
-    // This is more reliable and shows the complete context
-    // The full page image works correctly (as seen in e-paper share cards)
-    // No need to crop - just use the page image directly
-    if (section) {
-      // Always use full page image for section share cards
-      imageUrl = page.image || epaper.thumbnail || imageUrl;
-      console.log('Using full page image for section share card:', {
-        pageImage: page.image,
-        thumbnail: epaper.thumbnail,
-        finalImage: imageUrl
-      });
-    }
-    
-    // Final fallback - ensure we always have a valid image URL
-    if (!imageUrl || imageUrl.trim() === '') {
-      imageUrl = `${baseUrl}/logo1.png`;
-    }
-    
-    // Get properly formatted absolute image URL
-    const absoluteImage = getAbsoluteImageUrl(imageUrl, baseUrl);
-    
-    // Log for debugging
-    console.log('E-paper section preview image:', {
-      epaperId: id,
-      pageNo: pageNo,
-      sectionId: sectionId,
-      pageImage: page.image,
-      thumbnail: epaper.thumbnail,
-      selected: imageUrl,
-      finalImage: absoluteImage,
-      hasCloudinary: absoluteImage.includes('cloudinary.com'),
-      isValid: absoluteImage.startsWith('https://'),
-      userAgent: userAgent.substring(0, 50)
-    });
-    
-    // Get title and description
-    // Clean section title - remove "Untitled" and empty titles
-    let sectionTitle = section?.title || '';
-    if (!sectionTitle || sectionTitle.trim() === '' || sectionTitle.toLowerCase() === 'untitled') {
-      sectionTitle = 'बातमी विभाग';
-    } else {
-      sectionTitle = sectionTitle.trim();
-    }
-    
-    // Clean e-paper title - remove date patterns
-    let epaperTitle = epaper.title || 'ई-पेपर';
-    epaperTitle = epaperTitle
-      .replace(/\s*-\s*\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}/gi, '')
-      .replace(/\s*-\s*\d{1,2}\/\d{1,2}\/\d{4}/g, '')
-      .replace(/\s*-\s*\d{4}-\d{2}-\d{2}/g, '')
-      .replace(/\s*-\s*पृष्ठ\s*\d+/gi, '')
-      .replace(/\s*-\s*Page\s*\d+/gi, '')
-      .trim();
-    
-    const title = `${sectionTitle} - ${epaperTitle}`;
-    // Description without date duplication - just e-paper name and page number
-    const description = `${epaperTitle} - पृष्ठ ${pageNo}`;
-    
-    // Use IDs in URLs for sections to avoid "Untitled" slugs and encoded characters
-    // This provides cleaner, more trustworthy URLs
-    // For e-paper, use slug if meaningful, otherwise use ID
-    let epaperIdentifier;
-    if (epaper.slug && epaper.slug.trim() !== '' && epaper.slug.toLowerCase() !== 'untitled') {
-      epaperIdentifier = epaper.slug;
-    } else {
-      // Use ID for cleaner URL (avoid encoded characters)
-      epaperIdentifier = epaper.id !== undefined ? String(epaper.id) : (epaper._id ? String(epaper._id) : id);
-    }
-    
-    // Always use ID for sections (never use "Untitled" slug)
-    let sectionIdentifier;
-    if (section) {
-      if (section.id !== undefined && section.id !== null) {
-        sectionIdentifier = String(section.id);
-      } else if (section._id) {
-        sectionIdentifier = String(section._id);
-      } else {
-        sectionIdentifier = sectionId; // Fallback to what was in URL
-      }
-    } else {
-      sectionIdentifier = sectionId;
-    }
-    
-    const sectionUrl = `${baseUrl}/epaper/${epaperIdentifier}/page/${pageNo}/section/${sectionIdentifier}`;
-    const siteName = 'नव मंच - Nav Manch';
-    
-    // Escape HTML entities properly
-    const escapeHtml = (str) => {
-      if (!str) return '';
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    };
-    
-    const safeTitle = escapeHtml(title);
-    const safeDescription = escapeHtml(description);
-    
-    // Generate HTML with meta tags
-    const html = `<!DOCTYPE html>
-<html lang="mr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  
-  <!-- Primary Meta Tags -->
-  <title>${safeTitle} | ${siteName}</title>
-  <meta name="title" content="${safeTitle}">
-  <meta name="description" content="${safeDescription}">
-  
-  <!-- Open Graph / Facebook -->
-  <meta property="og:type" content="article">
-  <meta property="og:url" content="${sectionUrl}">
-  <meta property="og:title" content="${safeTitle}">
-  <meta property="og:description" content="${safeDescription}">
-  <meta property="og:image" content="${absoluteImage}">
-  <meta property="og:image:secure_url" content="${absoluteImage}">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
-  <meta property="og:image:type" content="image/jpeg">
-  <meta property="og:site_name" content="${siteName}">
-  <meta property="og:locale" content="mr_IN">
-  
-  <!-- Twitter -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:url" content="${sectionUrl}">
-  <meta name="twitter:title" content="${safeTitle}">
-  <meta name="twitter:description" content="${safeDescription}">
-  <meta name="twitter:image" content="${absoluteImage}">
-  <meta name="twitter:image:src" content="${absoluteImage}">
-  
-  <!-- Canonical -->
-  <link rel="canonical" href="${sectionUrl}">
-  
-  <!-- Redirect to actual React app (only for non-crawlers) -->
-  <script>
-    if (!navigator.userAgent.match(/facebookexternalhit|whatsapp|twitterbot|linkedinbot/i)) {
-      window.location.href = "${sectionUrl}";
-    }
-  </script>
-</head>
-<body>
-  <div style="text-align: center; padding: 50px; font-family: Arial, sans-serif;">
-    <h1>${safeTitle}</h1>
-    <p>${safeDescription}</p>
-    <img src="${absoluteImage}" alt="${safeTitle}" style="max-width: 100%; height: auto; margin: 20px 0; border-radius: 8px;">
-    <p><a href="${sectionUrl}">View section</a></p>
-  </div>
-</body>
-</html>`;
+    // Cache in memory for immediate future requests
+    metaCache.set(cacheKey, { html, timestamp: Date.now() });
     
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours browser/CDN cache
     res.send(html);
   } catch (error) {
     console.error('Error generating e-paper section preview:', error);
@@ -570,14 +247,24 @@ router.get('/epaper/:id', async (req, res) => {
       return res.redirect(`${baseUrl}/epaper/${id}`);
     }
     
-    // Fetch e-paper - supports slug or ID
+    // Check cache first (instant response for iOS)
+    const cacheKey = `epaper:${id}:${baseUrl}`;
+    const cached = metaCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+      console.log(`⚡ [CACHE HIT] Instant meta tags for epaper/${id}`);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
+      return res.send(cached.html);
+    }
+    
+    // Fetch e-paper - include metaHtml field for instant serving
     let epaper;
     if (mongoose.Types.ObjectId.isValid(id)) {
-      epaper = await Epaper.findById(id).select('title date thumbnail pages slug');
+      epaper = await Epaper.findById(id).select('title date thumbnail pages slug metaHtml _id id').lean();
     } else if (!isNaN(id)) {
-      epaper = await Epaper.findOne({ id: parseInt(id) }).select('title date thumbnail pages slug');
+      epaper = await Epaper.findOne({ id: parseInt(id) }).select('title date thumbnail pages slug metaHtml _id id').lean();
     } else {
-      epaper = await Epaper.findOne({ slug: id }).select('title date thumbnail pages slug');
+      epaper = await Epaper.findOne({ slug: id }).select('title date thumbnail pages slug metaHtml _id id').lean();
     }
     
     if (!epaper) {
@@ -590,119 +277,28 @@ router.get('/epaper/:id', async (req, res) => {
       `);
     }
     
-    // Get image (use first page image or thumbnail) - optimized for vertical share cards
-    const imageUrl = epaper.pages?.[0]?.image || epaper.thumbnail || `${baseUrl}/logo1.png`;
-    const absoluteImage = getEpaperImageUrl(imageUrl, baseUrl);
-    
-    // Log for debugging
-    console.log('E-paper preview image:', {
-      epaperId: id,
-      thumbnail: epaper.thumbnail,
-      firstPageImage: epaper.pages?.[0]?.image,
-      finalImage: absoluteImage,
-      hasCloudinary: absoluteImage.includes('cloudinary.com'),
-      isValid: absoluteImage.startsWith('https://'),
-      userAgent: userAgent.substring(0, 50)
-    });
-    
-    // Get title - only e-paper name (no date, no page number)
-    let epaperTitle = epaper.title || 'नव मंच';
-    
-    // Clean title - remove any date patterns that might be in the title
-    // Remove patterns like " - 31 Dec 2025", " - 31/12/2025", " - पृष्ठ 1", etc.
-    epaperTitle = epaperTitle
-      .replace(/\s*-\s*\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}/gi, '') // Remove " - 31 Dec 2025"
-      .replace(/\s*-\s*\d{1,2}\/\d{1,2}\/\d{4}/g, '') // Remove " - 31/12/2025"
-      .replace(/\s*-\s*\d{4}-\d{2}-\d{2}/g, '') // Remove " - 2025-12-31"
-      .replace(/\s*-\s*पृष्ठ\s*\d+/gi, '') // Remove " - पृष्ठ 1"
-      .replace(/\s*-\s*Page\s*\d+/gi, '') // Remove " - Page 1"
-      .trim();
-    
-    // Just the e-paper name for title
-    const title = epaperTitle || 'नव मंच';
-    // Description with site name only (no date duplication)
-    const description = `${title} | navmanchnews.com`;
-    
-    // Use ID for cleaner URL (avoid encoded characters for better trust)
-    // Only use slug if it's meaningful and not "Untitled"
-    let epaperIdentifier;
-    if (epaper.slug && epaper.slug.trim() !== '' && epaper.slug.toLowerCase() !== 'untitled') {
-      epaperIdentifier = epaper.slug;
-    } else {
-      // Use ID for cleaner, more trustworthy URL
-      epaperIdentifier = epaper.id !== undefined ? String(epaper.id) : (epaper._id ? String(epaper._id) : id);
+    // INSTANT: If pre-generated metaHtml exists, serve it immediately (zero latency)
+    if (epaper.metaHtml && epaper.metaHtml.trim() !== '') {
+      console.log(`⚡ [INSTANT] Serving pre-generated metaHtml for epaper/${id}`);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
+      return res.send(epaper.metaHtml); // INSTANT - just reading a string!
     }
-    const epaperUrl = `${baseUrl}/epaper/${epaperIdentifier}`;
-    const siteName = 'नव मंच - Nav Manch';
     
-    // Escape HTML entities properly
-    const escapeHtml = (str) => {
-      if (!str) return '';
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    };
+    // Lazy generation: Generate on-the-fly for existing e-papers (non-blocking)
+    console.log(`🔄 [LAZY GEN] Generating metaHtml on-the-fly for epaper/${id}`);
+    const html = generateEpaperMetaHtml(epaper, baseUrl);
     
-    const safeTitle = escapeHtml(title);
-    const safeDescription = escapeHtml(description);
+    // Save it for next time (async, non-blocking - don't wait)
+    const epaperId = epaper._id || (epaper.id ? { id: parseInt(epaper.id) } : id);
+    Epaper.findByIdAndUpdate(epaper._id || epaperId, { metaHtml: html })
+      .catch(err => console.error('Error saving metaHtml (non-critical):', err.message));
     
-    // Generate HTML with meta tags
-    const html = `<!DOCTYPE html>
-<html lang="mr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  
-  <!-- Primary Meta Tags -->
-  <title>${safeTitle} | ${siteName}</title>
-  <meta name="title" content="${safeTitle}">
-  <meta name="description" content="${safeDescription}">
-  
-  <!-- Open Graph / Facebook -->
-  <meta property="og:type" content="article">
-  <meta property="og:url" content="${epaperUrl}">
-  <meta property="og:title" content="${safeTitle}">
-  <meta property="og:description" content="${safeDescription}">
-  <meta property="og:image" content="${absoluteImage}">
-  <meta property="og:image:secure_url" content="${absoluteImage}">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="1600">
-  <meta property="og:image:type" content="image/jpeg">
-  <meta property="og:site_name" content="${siteName}">
-  <meta property="og:locale" content="mr_IN">
-  
-  <!-- Twitter -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:url" content="${epaperUrl}">
-  <meta name="twitter:title" content="${safeTitle}">
-  <meta name="twitter:description" content="${safeDescription}">
-  <meta name="twitter:image" content="${absoluteImage}">
-  <meta name="twitter:image:src" content="${absoluteImage}">
-  
-  <!-- Canonical -->
-  <link rel="canonical" href="${epaperUrl}">
-  
-  <!-- Redirect to actual React app (only for non-crawlers) -->
-  <script>
-    if (!navigator.userAgent.match(/facebookexternalhit|whatsapp|twitterbot|linkedinbot/i)) {
-      window.location.href = "${epaperUrl}";
-    }
-  </script>
-</head>
-<body>
-  <div style="text-align: center; padding: 50px; font-family: Arial, sans-serif;">
-    <h1>${safeTitle}</h1>
-    <p>${safeDescription}</p>
-    <img src="${absoluteImage}" alt="${safeTitle}" style="max-width: 100%; height: auto; margin: 20px 0; border-radius: 8px;">
-    <p><a href="${epaperUrl}">View e-paper</a></p>
-  </div>
-</body>
-</html>`;
+    // Cache in memory for immediate future requests
+    metaCache.set(cacheKey, { html, timestamp: Date.now() });
     
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours browser/CDN cache
     res.send(html);
   } catch (error) {
     console.error('Error generating e-paper preview:', error);
@@ -715,6 +311,17 @@ router.get('/epaper/:id', async (req, res) => {
     `);
   }
 });
+
+// Export cache for clearing when articles/epapers are updated
+export const clearMetaCache = (type, id) => {
+  // Clear all cache entries for this article/epaper
+  for (const key of metaCache.keys()) {
+    if (key.includes(`${type}:${id}`)) {
+      metaCache.delete(key);
+      console.log(`🗑️  [CACHE CLEAR] Cleared meta cache for ${key}`);
+    }
+  }
+};
 
 export default router;
 
