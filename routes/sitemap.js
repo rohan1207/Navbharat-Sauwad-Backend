@@ -28,7 +28,7 @@ router.get('/sitemap.xml', async (req, res) => {
     });
 
     urls.push({
-      loc: `${BASE_URL}/epaper2`,
+      loc: `${BASE_URL}/epaper`,
       lastmod: new Date().toISOString().split('T')[0],
       changefreq: 'daily',
       priority: '0.9'
