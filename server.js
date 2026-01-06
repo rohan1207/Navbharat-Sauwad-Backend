@@ -17,6 +17,7 @@ import metaRoutes from './routes/meta.js';
 import socialPreviewRoutes from './routes/socialPreview.js';
 import subscriberRoutes from './routes/subscribers.js';
 import sitemapRoutes from './routes/sitemap.js';
+import statsRoutes from './routes/stats.js';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -97,6 +98,7 @@ app.use('/api/shorts', shortsRoutes); // Shorts route
 app.use('/api/sports', sportsRoutes); // Sports Monk API routes
 app.use('/api/meta', metaRoutes); // Meta tags route
 app.use('/api/subscribers', subscriberRoutes); // Subscribers route
+app.use('/api/stats', statsRoutes); // Website stats route
 
 // Ping/Pong endpoint - Keep server alive on Render
 app.get('/ping', (req, res) => {
