@@ -49,9 +49,9 @@ const getAbsoluteImageUrl = (imgUrl, baseUrl) => {
       
       // If no transformations or simple ones, add optimal preview size
       if (!rest.includes('w_') || !rest.includes('h_')) {
-        // Default: 1200x630 for articles (landscape)
+        // Default: 1600x840 for articles (landscape) - larger for better share cards
         // For e-papers, we'll use vertical format in the e-paper route
-        absoluteImage = `${base}w_1200,h_630,c_fill,q_auto,f_auto/${rest}`;
+        absoluteImage = `${base}w_1600,h_840,c_fill,q_auto,f_auto/${rest}`;
       } else {
         // Ensure HTTPS
         absoluteImage = absoluteImage.replace('http://', 'https://');
@@ -65,9 +65,9 @@ const getAbsoluteImageUrl = (imgUrl, baseUrl) => {
 // Helper to optimize e-paper images for vertical share cards
 const getEpaperImageUrl = (imgUrl, baseUrl) => {
   if (!imgUrl || imgUrl.trim() === '') {
-    // Use production URL for logo, not localhost
-    const productionUrl = 'https://navmanchnews.com';
-    return `${productionUrl}/logo1.png`;
+    // Use the provided baseUrl (which comes from the request), or fallback
+    const logoBaseUrl = baseUrl || process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanchnews.com';
+    return `${logoBaseUrl}/logo1.png`;
   }
   
   let absoluteImage = imgUrl.trim();
@@ -83,9 +83,9 @@ const getEpaperImageUrl = (imgUrl, baseUrl) => {
         
         // If no transformations or simple ones, add optimal vertical size for e-paper
         if (!rest.includes('w_') || !rest.includes('h_')) {
-        // Big vertical format: 1200x1600 for large, prominent share cards
+        // Big vertical format: 1600x2133 for large, prominent share cards
         // This makes the newspaper page big and clearly visible
-        absoluteImage = `${base}w_1200,h_1600,c_fit,q_auto,f_auto/${rest}`;
+        absoluteImage = `${base}w_1600,h_2133,c_fit,q_auto,f_auto/${rest}`;
         }
       }
     }
@@ -98,11 +98,10 @@ const getEpaperImageUrl = (imgUrl, baseUrl) => {
     return absoluteImage;
   }
   
-  // If relative URL, make it absolute using production URL (not localhost)
+  // If relative URL, make it absolute using baseUrl
   if (!absoluteImage.startsWith('http://') && !absoluteImage.startsWith('https://')) {
-    // Use production URL instead of baseUrl (which might be localhost)
-    const productionUrl = baseUrl.includes('localhost') ? 'https://navmanchnews.com' : baseUrl;
-    absoluteImage = `${productionUrl}${absoluteImage.startsWith('/') ? '' : '/'}${absoluteImage}`;
+    const effectiveBaseUrl = baseUrl || process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanchnews.com';
+    absoluteImage = `${effectiveBaseUrl}${absoluteImage.startsWith('/') ? '' : '/'}${absoluteImage}`;
   }
   
   // Force HTTPS (required by WhatsApp/Facebook)
@@ -112,8 +111,9 @@ const getEpaperImageUrl = (imgUrl, baseUrl) => {
   
   // Don't use localhost URLs for share cards - crawlers can't access them
   if (absoluteImage.includes('localhost') || absoluteImage.includes('127.0.0.1')) {
-    // Fallback to production logo
-    return 'https://navmanchnews.com/logo1.png';
+    // Fallback to logo using baseUrl or production URL
+    const logoBaseUrl = baseUrl || process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanchnews.com';
+    return `${logoBaseUrl}/logo1.png`;
   }
   
   return absoluteImage;
@@ -124,7 +124,12 @@ router.get('/news/:id', async (req, res) => {
   try {
     const userAgent = req.headers['user-agent'] || '';
     const { id } = req.params;
-    const baseUrl = process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanchnews.com';
+    // Use the frontend origin from the proxy header, or fallback to env or request origin
+    const baseUrl = req.headers['x-frontend-origin'] || 
+                    process.env.FRONTEND_URL || 
+                    process.env.SITE_URL || 
+                    (req.protocol + '://' + req.get('host')) ||
+                    'https://navmanchnews.com';
     
     // Only serve HTML to crawlers, redirect others to React app
     if (!isCrawler(userAgent)) {
@@ -179,16 +184,26 @@ router.get('/news/:id', async (req, res) => {
     const absoluteImage = getAbsoluteImageUrl(imageUrl, baseUrl);
     
     // Log for debugging
-    console.log('Article preview image:', {
+    console.log('📰 [SOCIAL PREVIEW] Article preview image:', {
       articleId: id,
-      featuredImage: article.featuredImage,
-      imageGallery: article.imageGallery,
-      selected: imageUrl,
-      finalImage: absoluteImage,
+      articleTitle: article.title?.substring(0, 50),
+      featuredImage: article.featuredImage ? article.featuredImage.substring(0, 80) : 'NONE',
+      imageGalleryCount: article.imageGallery?.length || 0,
+      selectedImageUrl: imageUrl ? imageUrl.substring(0, 80) : 'NONE',
+      finalAbsoluteImage: absoluteImage.substring(0, 100),
       hasCloudinary: absoluteImage.includes('cloudinary.com'),
+      isLogoFallback: absoluteImage.includes('logo1.png'),
       isValid: absoluteImage.startsWith('https://'),
       userAgent: userAgent.substring(0, 50)
     });
+    
+    // Warn if using logo fallback
+    if (absoluteImage.includes('logo1.png')) {
+      console.warn('⚠️  [SOCIAL PREVIEW] Using logo fallback - article has no image!', {
+        articleId: id,
+        title: article.title
+      });
+    }
     
     // Always use article ID in URL (not slug) for cleaner, more trustworthy URLs
     const articleId = article._id ? String(article._id) : id;
@@ -228,8 +243,8 @@ router.get('/news/:id', async (req, res) => {
   <meta property="og:description" content="${safeDescription}">
   <meta property="og:image" content="${absoluteImage}">
   <meta property="og:image:secure_url" content="${absoluteImage}">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
+  <meta property="og:image:width" content="1600">
+  <meta property="og:image:height" content="840">
   <meta property="og:image:type" content="image/jpeg">
   <meta property="og:site_name" content="${siteName}">
   <meta property="og:locale" content="mr_IN">
@@ -281,7 +296,12 @@ router.get('/epaper/:id/page/:pageNo/section/:sectionId', async (req, res) => {
   try {
     const userAgent = req.headers['user-agent'] || '';
     const { id, pageNo, sectionId } = req.params;
-    const baseUrl = process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanchnews.com';
+    // Use the frontend origin from the proxy header, or fallback to env or request origin
+    const baseUrl = req.headers['x-frontend-origin'] || 
+                    process.env.FRONTEND_URL || 
+                    process.env.SITE_URL || 
+                    (req.protocol + '://' + req.get('host')) ||
+                    'https://navmanchnews.com';
     
     // Only serve HTML to crawlers, redirect others to React app
     if (!isCrawler(userAgent)) {
@@ -373,12 +393,27 @@ router.get('/epaper/:id/page/:pageNo/section/:sectionId', async (req, res) => {
     });
     
     // Get title and description
-    const sectionTitle = section?.title || 'बातमी विभाग';
-    const epaperTitle = epaper.title || 'ई-पेपर';
+    // Clean section title - remove "Untitled" and empty titles
+    let sectionTitle = section?.title || '';
+    if (!sectionTitle || sectionTitle.trim() === '' || sectionTitle.toLowerCase() === 'untitled') {
+      sectionTitle = 'बातमी विभाग';
+    } else {
+      sectionTitle = sectionTitle.trim();
+    }
+    
+    // Clean e-paper title - remove date patterns
+    let epaperTitle = epaper.title || 'ई-पेपर';
+    epaperTitle = epaperTitle
+      .replace(/\s*-\s*\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}/gi, '')
+      .replace(/\s*-\s*\d{1,2}\/\d{1,2}\/\d{4}/g, '')
+      .replace(/\s*-\s*\d{4}-\d{2}-\d{2}/g, '')
+      .replace(/\s*-\s*पृष्ठ\s*\d+/gi, '')
+      .replace(/\s*-\s*Page\s*\d+/gi, '')
+      .trim();
+    
     const title = `${sectionTitle} - ${epaperTitle}`;
-    const description = section?.content 
-      ? getPlainText(section.content).substring(0, 200)
-      : `${epaperTitle} - पृष्ठ ${pageNo}`;
+    // Description without date duplication - just e-paper name and page number
+    const description = `${epaperTitle} - पृष्ठ ${pageNo}`;
     
     // Use IDs in URLs for sections to avoid "Untitled" slugs and encoded characters
     // This provides cleaner, more trustworthy URLs
@@ -441,8 +476,8 @@ router.get('/epaper/:id/page/:pageNo/section/:sectionId', async (req, res) => {
   <meta property="og:description" content="${safeDescription}">
   <meta property="og:image" content="${absoluteImage}">
   <meta property="og:image:secure_url" content="${absoluteImage}">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
+  <meta property="og:image:width" content="1600">
+  <meta property="og:image:height" content="840">
   <meta property="og:image:type" content="image/jpeg">
   <meta property="og:site_name" content="${siteName}">
   <meta property="og:locale" content="mr_IN">
@@ -494,7 +529,12 @@ router.get('/epaper/:id', async (req, res) => {
   try {
     const userAgent = req.headers['user-agent'] || '';
     const { id } = req.params;
-    const baseUrl = process.env.FRONTEND_URL || process.env.SITE_URL || 'https://navmanchnews.com';
+    // Use the frontend origin from the proxy header, or fallback to env or request origin
+    const baseUrl = req.headers['x-frontend-origin'] || 
+                    process.env.FRONTEND_URL || 
+                    process.env.SITE_URL || 
+                    (req.protocol + '://' + req.get('host')) ||
+                    'https://navmanchnews.com';
     
     // Only serve HTML to crawlers, redirect others to React app
     if (!isCrawler(userAgent)) {
@@ -551,7 +591,7 @@ router.get('/epaper/:id', async (req, res) => {
     
     // Just the e-paper name for title
     const title = epaperTitle || 'नव मंच';
-    // Description with site name for better branding
+    // Description with site name only (no date duplication)
     const description = `${title} | navmanchnews.com`;
     
     // Use ID for cleaner URL (avoid encoded characters for better trust)
@@ -599,8 +639,8 @@ router.get('/epaper/:id', async (req, res) => {
   <meta property="og:description" content="${safeDescription}">
   <meta property="og:image" content="${absoluteImage}">
   <meta property="og:image:secure_url" content="${absoluteImage}">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="1600">
+  <meta property="og:image:width" content="1600">
+  <meta property="og:image:height" content="2133">
   <meta property="og:image:type" content="image/jpeg">
   <meta property="og:site_name" content="${siteName}">
   <meta property="og:locale" content="mr_IN">
