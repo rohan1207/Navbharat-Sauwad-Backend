@@ -356,6 +356,7 @@ router.post('/upload-page', uploadImage.single('image'), async (req, res) => {
       sortOrder: pageSortOrder, // Store sortOrder
       image: uploadResult.imageUrl,
       thumbnail: uploadResult.thumbnailUrl,
+      publicId: uploadResult.publicId, // Store publicId for share image generation
       width: metadata.width,
       height: metadata.height,
       news: []
@@ -375,6 +376,41 @@ router.post('/upload-page', uploadImage.single('image'), async (req, res) => {
       const orderB = b.sortOrder !== undefined ? b.sortOrder : b.pageNo;
       return orderA - orderB;
     });
+
+    // Set shareImageUrl for epaper if this is the first page (pageNo === 1) and shareImageUrl is not set
+    // OR if shareImageUrl is missing (for any page upload, ensure it's set from first page)
+    if ((parseInt(pageNo) === 1 || !epaper.shareImageUrl || epaper.shareImageUrl.trim() === '') && 
+        (!epaper.shareImageUrl || epaper.shareImageUrl.trim() === '')) {
+      // Find the first page (by pageNo, not array index)
+      const firstPage = epaper.pages.find(p => p.pageNo === 1) || epaper.pages[0];
+      if (firstPage) {
+        console.log(`[${requestId}] 🖼️  Setting shareImageUrl for epaper using page ${firstPage.pageNo}`);
+        if (firstPage.publicId) {
+          epaper.shareImageUrl = getOptimizedUrl(firstPage.publicId, {
+            width: 600,
+            height: 800,
+            crop: 'fill',
+            quality: 60,
+            fetch_format: 'jpg'
+          });
+          console.log(`[${requestId}] ✅ shareImageUrl set from publicId: ${epaper.shareImageUrl.substring(0, 80)}...`);
+        } else if (uploadResult.publicId && parseInt(pageNo) === 1) {
+          // If this is page 1 and we have publicId, use it
+          epaper.shareImageUrl = getOptimizedUrl(uploadResult.publicId, {
+            width: 600,
+            height: 800,
+            crop: 'fill',
+            quality: 60,
+            fetch_format: 'jpg'
+          });
+          console.log(`[${requestId}] ✅ shareImageUrl set from current upload: ${epaper.shareImageUrl.substring(0, 80)}...`);
+        } else {
+          // Fallback to thumbnail or image URL
+          epaper.shareImageUrl = firstPage.thumbnail || firstPage.image || uploadResult.thumbnailUrl || uploadResult.imageUrl || '';
+          console.log(`[${requestId}] ⚠️  Using fallback shareImageUrl: ${epaper.shareImageUrl ? epaper.shareImageUrl.substring(0, 80) + '...' : 'empty'}`);
+        }
+      }
+    }
 
     // Step 6: Save to database
     console.log(`[${requestId}] 💾 Step 6: Saving to database...`);
@@ -684,6 +720,30 @@ router.put('/:id', async (req, res) => {
       epaper.updatedAt = new Date();
     }
 
+    // Ensure shareImageUrl is set if missing (fallback for epapers created before this logic)
+    if (!epaper.shareImageUrl || epaper.shareImageUrl.trim() === '') {
+      console.log('⚠️  shareImageUrl missing, generating from first page...');
+      const firstPage = epaper.pages?.find(p => p.pageNo === 1) || epaper.pages?.[0];
+      if (firstPage) {
+        if (firstPage.publicId) {
+          epaper.shareImageUrl = getOptimizedUrl(firstPage.publicId, {
+            width: 600,
+            height: 800,
+            crop: 'fill',
+            quality: 60,
+            fetch_format: 'jpg'
+          });
+          console.log('✅ shareImageUrl generated from first page publicId');
+        } else if (firstPage.thumbnail) {
+          epaper.shareImageUrl = firstPage.thumbnail;
+          console.log('✅ shareImageUrl set from first page thumbnail');
+        } else if (firstPage.image) {
+          epaper.shareImageUrl = firstPage.image;
+          console.log('✅ shareImageUrl set from first page image');
+        }
+      }
+    }
+
     // Log epaper structure before validation
     console.log('Epaper structure before save:', {
       id: epaper.id,
@@ -691,9 +751,12 @@ router.put('/:id', async (req, res) => {
       date: epaper.date,
       status: epaper.status,
       pagesCount: epaper.pages?.length || 0,
+      hasShareImageUrl: !!epaper.shareImageUrl,
+      shareImageUrl: epaper.shareImageUrl ? epaper.shareImageUrl.substring(0, 80) + '...' : 'missing',
       firstPage: epaper.pages?.[0] ? {
         pageNo: epaper.pages[0].pageNo,
         hasImage: !!epaper.pages[0].image,
+        hasPublicId: !!epaper.pages[0].publicId,
         width: epaper.pages[0].width,
         height: epaper.pages[0].height,
         newsCount: epaper.pages[0].news?.length || 0
