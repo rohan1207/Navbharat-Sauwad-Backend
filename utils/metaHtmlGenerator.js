@@ -440,7 +440,7 @@ export const generateEpaperMetaHtml = (epaper, baseUrl) => {
   const safeTitle = escapeHtml(title);
   const safeDescription = escapeHtml(description);
   
-  return `<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html lang="mr">
 <head>
   <meta charset="UTF-8">
@@ -491,5 +491,8 @@ export const generateEpaperMetaHtml = (epaper, baseUrl) => {
   </div>
 </body>
 </html>`;
+  
+  // Return as Promise to match controller expectations
+  return Promise.resolve(html);
 };
 
