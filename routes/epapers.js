@@ -455,7 +455,7 @@ router.post('/', async (req, res) => {
       await existing.save();
       
       // Generate metaHtml asynchronously (non-blocking)
-      generateEpaperMetaHtml(existing.toObject(), BASE_URL, getEpaperImageUrl)
+      generateEpaperMetaHtml(existing.toObject(), BASE_URL)
         .then(metaHtml => {
           Epaper.findByIdAndUpdate(existing._id, { metaHtml })
             .catch(err => console.error('Error saving metaHtml (non-critical):', err.message));
@@ -744,7 +744,7 @@ router.put('/:id', async (req, res) => {
       console.log(`✅ E-paper ${epaperId} updated successfully`);
       
       // Generate metaHtml asynchronously (non-blocking, doesn't add latency)
-      generateEpaperMetaHtml(epaper.toObject(), BASE_URL, getEpaperImageUrl)
+      generateEpaperMetaHtml(epaper.toObject(), BASE_URL)
         .then(metaHtml => {
           Epaper.findByIdAndUpdate(epaper._id, { metaHtml })
             .catch(err => console.error('Error saving metaHtml (non-critical):', err.message));
