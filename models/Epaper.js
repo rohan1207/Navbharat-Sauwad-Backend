@@ -10,6 +10,8 @@ const newsItemSchema = new mongoose.Schema({
   // Made optional for simplified version 2 (cropped image only)
   title: { type: String, required: false, default: '' },
   content: { type: String, required: false, default: '' },
+  // Optional pre-generated share image for this mapped section
+  shareImageUrl: { type: String, default: '' },
   articleId: { 
     type: mongoose.Schema.Types.Mixed, 
     default: null,
@@ -26,6 +28,8 @@ const pageSchema = new mongoose.Schema({
   pageNo: { type: Number, required: true },
   image: { type: String, required: true }, // Cloudinary URL
   thumbnail: { type: String, default: null }, // Cloudinary URL for thumbnail
+  // Cloudinary public ID (used to generate optimized/share variants safely)
+  publicId: { type: String, default: null },
   width: { type: Number, required: true },
   height: { type: Number, required: true },
   news: { type: [newsItemSchema], default: [] }
@@ -48,6 +52,11 @@ const epaperSchema = new mongoose.Schema({
     default: 'published' 
   },
   pages: { type: [pageSchema], default: [] },
+   // Optional pre-generated share image (front page small variant)
+  shareImageUrl: {
+    type: String,
+    default: ''
+  },
   metaHtml: {
     type: String,
     default: '' // Pre-generated HTML for social media previews (instant serving)

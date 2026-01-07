@@ -121,8 +121,13 @@ export const createArticle = async (req, res) => {
     // Generate metaHtml asynchronously (non-blocking, doesn't add latency)
     generateArticleMetaHtml(populatedArticle.toObject(), BASE_URL)
       .then(metaHtml => {
-        Article.findByIdAndUpdate(article._id, { metaHtml })
-          .catch(err => console.error('Error saving metaHtml (non-critical):', err.message));
+        const update = { metaHtml };
+        // If shareImageUrl is empty, prefer featuredImage as a safe default
+        if (!populatedArticle.shareImageUrl && populatedArticle.featuredImage) {
+          update.shareImageUrl = populatedArticle.featuredImage;
+        }
+        Article.findByIdAndUpdate(article._id, update)
+          .catch(err => console.error('Error saving metaHtml/shareImageUrl (non-critical):', err.message));
       })
       .catch(err => console.error('Error generating metaHtml (non-critical):', err.message));
     
@@ -184,8 +189,12 @@ export const updateArticle = async (req, res) => {
     // Generate metaHtml asynchronously (non-blocking, doesn't add latency)
     generateArticleMetaHtml(populatedArticle.toObject(), BASE_URL)
       .then(metaHtml => {
-        Article.findByIdAndUpdate(article._id, { metaHtml })
-          .catch(err => console.error('Error saving metaHtml (non-critical):', err.message));
+        const update = { metaHtml };
+        if (!populatedArticle.shareImageUrl && populatedArticle.featuredImage) {
+          update.shareImageUrl = populatedArticle.featuredImage;
+        }
+        Article.findByIdAndUpdate(article._id, update)
+          .catch(err => console.error('Error saving metaHtml/shareImageUrl (non-critical):', err.message));
       })
       .catch(err => console.error('Error generating metaHtml (non-critical):', err.message));
     

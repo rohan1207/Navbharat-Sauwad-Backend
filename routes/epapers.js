@@ -6,7 +6,7 @@ import fs from 'fs-extra';
 import mongoose from 'mongoose';
 import sharp from 'sharp';
 import Epaper from '../models/Epaper.js';
-import { uploadEpaperPage, deleteFolder } from '../services/cloudinaryService.js';
+import { uploadEpaperPage, deleteFolder, getOptimizedUrl, getCroppedUrl } from '../services/cloudinaryService.js';
 import { convertPDFToImages, cleanupTemp } from '../services/pdfConverter.js';
 import { generateEpaperMetaHtml } from '../utils/metaHtmlGenerator.js';
 
@@ -199,6 +199,7 @@ router.post('/upload', upload.single('pdf'), async (req, res) => {
         pageNo: page.pageNo,
         image: uploadResult.imageUrl,
         thumbnail: uploadResult.thumbnailUrl,
+        publicId: uploadResult.publicId,
         width: uploadResult.width,
         height: uploadResult.height,
         news: []
@@ -211,7 +212,17 @@ router.post('/upload', upload.single('pdf'), async (req, res) => {
       title,
       date: new Date(date),
       status: 'published',
-      pages: uploadedPages
+      pages: uploadedPages,
+      // Use an optimized 600x800 front-page image as default share image
+      shareImageUrl: uploadedPages[0]?.publicId
+        ? getOptimizedUrl(uploadedPages[0].publicId, {
+            width: 600,
+            height: 800,
+            crop: 'fill',
+            quality: 60,
+            fetch_format: 'jpg'
+          })
+        : (uploadedPages[0]?.thumbnail || uploadedPages[0]?.image || '')
     });
 
     await epaper.save();
@@ -607,7 +618,31 @@ router.put('/:id', async (req, res) => {
                   height: typeof newsItem.height === 'number' ? newsItem.height : (newsItem.height ? parseFloat(newsItem.height) : 0),
                   title: newsItem.title ? String(newsItem.title) : 'Untitled',
                   content: newsItem.content ? String(newsItem.content) : '',
-                  articleId: newsItem.articleId || null
+                  articleId: newsItem.articleId || null,
+                  // Pre-generate / normalize share image URL for mapped sections
+                  shareImageUrl: (() => {
+                    try {
+                      // If a pre-existing shareImageUrl is provided, keep it
+                      if (newsItem.shareImageUrl && String(newsItem.shareImageUrl).trim() !== '') {
+                        return String(newsItem.shareImageUrl).trim();
+                      }
+                      // If we have coordinates and a publicId for the page, generate a cropped share URL
+                      if ((page.publicId || page.imagePublicId) && newsItem.width && newsItem.height) {
+                        const pubId = page.publicId || page.imagePublicId;
+                        return getCroppedUrl(
+                          pubId,
+                          newsItem.x || 0,
+                          newsItem.y || 0,
+                          newsItem.width || 0,
+                          newsItem.height || 0
+                        );
+                      }
+                      return '';
+                    } catch (e) {
+                      console.warn('Error generating section shareImageUrl:', e.message);
+                      return '';
+                    }
+                  })()
                 };
                 
                 // Validate required fields

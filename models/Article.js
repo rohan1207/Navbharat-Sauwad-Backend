@@ -40,6 +40,11 @@ const articleSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  // Pre-generated small share image (e.g. 600x315) for social cards
+  shareImageUrl: {
+    type: String,
+    default: ''
+  },
   imageGallery: [{
     type: String
   }],
