@@ -289,4 +289,38 @@ export const incrementViews = async (req, res) => {
   }
 };
 
+// Run scheduled publishing (triggered by external cron / uptime monitor)
+export const runScheduledPublisher = async (req, res) => {
+  try {
+    const secret = req.query.secret;
+    if (secret !== process.env.SCHEDULER_SECRET) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const now = new Date();
+
+    const result = await Article.updateMany(
+      {
+        status: 'pending',
+        scheduledAt: { $lte: now }
+      },
+      {
+        $set: {
+          status: 'published',
+          publishedAt: now
+        }
+      }
+    );
+
+    return res.json({
+      success: true,
+      publishedCount: result.modifiedCount || 0,
+      runAt: now
+    });
+  } catch (error) {
+    console.error('Error in runScheduledPublisher:', error);
+    return res.status(500).json({ error: 'Scheduler failed' });
+  }
+};
+
 

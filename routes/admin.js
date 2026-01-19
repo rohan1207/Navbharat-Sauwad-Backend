@@ -2,10 +2,12 @@ import express from 'express';
 import {
   getArticles,
   getArticle,
+  getArticle as getArticleController,
   createArticle,
   updateArticle,
   deleteArticle,
-  bulkAction
+  bulkAction,
+  runScheduledPublisher
 } from '../controllers/articleController.js';
 import {
   getCategories,
@@ -48,6 +50,8 @@ router.post('/articles', createArticle);
 router.put('/articles/:id', updateArticle);
 router.delete('/articles/:id', deleteArticle);
 router.post('/articles/bulk', bulkAction);
+// Scheduler (triggered by external uptime monitor / cron)
+router.get('/scheduler/run', runScheduledPublisher);
 
 // Categories
 router.get('/categories', getCategories);
@@ -74,6 +78,15 @@ router.get('/settings', getSettings);
 router.put('/settings', updateSettings);
 
 export default router;
+
+
+
+
+
+
+
+
+
 
 
 
